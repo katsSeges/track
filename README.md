@@ -88,7 +88,7 @@ per-hour totals with an independent count (`scripts\independent_usage.py`) and w
 ## Releases
 
 CI (`.github/workflows/ci.yml`) builds and runs the tests with the 100 % coverage gate on every push and pull
-request. To release, set `<Version>` in `src/Track.App/Track.App.csproj`, add `docs/releases/v<version>.md`, and
+request. To release, set `<Version>` in `src/Track.App/Track.App.csproj`, add `docs/release-notes/v<version>.md`, and
 push a matching tag (`git tag v1.0.0; git push origin v1.0.0`). `.github/workflows/release.yml` then builds,
 tests, runs `scripts\package.ps1` (self-contained win-x64 zip + `.sha256`) and publishes the GitHub release.
 `scripts\package.ps1` runs the same locally and writes to `artifacts\`.
