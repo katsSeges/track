@@ -1,0 +1,223 @@
+<title>Track Tray Icons</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: left = Windows desktop corner with tray + popover and a large icon lab; right = decision panel. Stacks on phone. */
+:root{
+  --bg:#e9ebef; --desk1:#9fb4cc; --desk2:#6f86a3; --fg:#1d1d1f; --muted:#6e6e73; --line:rgba(0,0,0,.09);
+  --panel:#ffffff; --pop:rgba(246,246,248,.88); --popsolid:#f6f6f8; --row:rgba(0,0,0,.035);
+  --accent:#0a66d8; --ok:#28a745; --warn:#d98a00; --task:#e8ecf2; --taskfg:#333;
+  --claude:#d97757; --codex:#2b2b2e; --copilot:#7a4fd6;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",sans-serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.84); --popsolid:#2e2e33; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#e4e4ea; --copilot:#a98bff; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.84); --popsolid:#2e2e33; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#e4e4ea; --copilot:#a98bff; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:13px}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:28px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}}
+main{display:flex;flex-direction:column;gap:20px;min-width:0}
+h1{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px}
+h2{font-size:14px;margin:0}
+.sub{color:var(--muted);margin:0;max-width:64ch;line-height:1.5}
+.tag{display:inline-block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--warn);border:1px solid currentColor;border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+
+.stage{position:relative;border-radius:12px;overflow:hidden;min-height:560px;background:linear-gradient(160deg,var(--desk1),var(--desk2));display:flex;flex-direction:column;justify-content:flex-end}
+.taskbar{height:44px;background:var(--task);color:var(--taskfg);display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 14px;font-size:12px;border-top:1px solid var(--line)}
+.trayicon{width:30px;height:30px;border-radius:6px;display:grid;place-items:center;cursor:pointer;background:transparent;border:0;color:inherit}
+.trayicon:hover,.trayicon[aria-expanded="true"]{background:var(--row)}
+.trayicon:focus-visible{outline:2px solid var(--accent)}
+.clock{text-align:right;line-height:1.2}
+
+.pop{position:absolute;right:12px;bottom:54px;width:330px;max-width:calc(100% - 24px);background:var(--pop);backdrop-filter:blur(30px) saturate(1.6);-webkit-backdrop-filter:blur(30px) saturate(1.6);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.28),0 0 0 .5px rgba(0,0,0,.15);padding:10px}
+.phead{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 8px}
+.phead span{color:var(--muted);font-size:11px}
+.live{display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:8px;background:var(--row);margin-bottom:8px}
+.liverow{display:flex;align-items:center;gap:8px;font-size:12px;padding:2px}
+.liverow svg{flex:none}
+.liverow.idle{color:var(--muted)}
+.liverow .m{color:var(--muted);margin-left:auto;font-family:var(--mono);font-size:11px}
+.pill{font-size:10px;font-weight:600;padding:1px 6px;border-radius:9px;background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.seg{display:flex;background:var(--row);border-radius:7px;padding:2px;margin:0 0 8px}
+.seg button{flex:1;border:0;background:transparent;color:var(--fg);font:500 11.5px var(--sans);padding:4px 0;border-radius:5px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--popsolid);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.seg button:focus-visible{outline:2px solid var(--accent)}
+table.u{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.u th{font-weight:500;color:var(--muted);font-size:10.5px;text-align:right;padding:2px 4px 4px}
+table.u th:first-child{text-align:left}
+table.u td{padding:7px 4px;text-align:right;border-top:1px solid var(--line);vertical-align:top}
+table.u td:first-child{text-align:left;font-size:12.5px;font-weight:500}
+.name{display:flex;align-items:center;gap:7px}
+.tok{font-family:var(--mono);font-size:13px;font-weight:500}
+.sm{display:block;color:var(--muted);font-size:10px;font-family:var(--mono);margin-top:2px}
+.price{cursor:default}
+tr.total td{font-weight:600}
+.bar{height:3px;border-radius:2px;background:var(--row);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;border-radius:2px}
+.foot{display:flex;justify-content:space-between;color:var(--muted);font-size:10.5px;padding:8px 4px 0;border-top:1px solid var(--line);margin-top:6px}
+
+.lab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.chip{border-radius:8px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;font-size:10.5px;text-align:center}
+.chip .icons{display:flex;align-items:end;gap:12px;height:36px}
+.lt{background:#eef1f5;color:#222;--codex:#2b2b2e;--claude:#d97757;--copilot:#7a4fd6}
+.dk{background:#1c1f25;color:#e6e6e6;--codex:#e4e4ea;--claude:#e08560;--copilot:#a98bff}
+.big{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.big figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px;align-self:start}
+.q{display:flex;flex-direction:column;gap:6px}
+.q .h{font-weight:600;font-size:12px}
+.q p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.45}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opts label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px}
+.opts input{accent-color:var(--accent);margin:0}
+.opts label:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.opts label:has(input:focus-visible){outline:2px solid var(--accent)}
+.fixed{font-size:11.5px;color:var(--muted);line-height:1.6}
+.fixed b{color:var(--fg);font-weight:500}
+pre.out{background:var(--row);border-radius:8px;padding:10px;font:11px/1.5 var(--mono);white-space:pre-wrap;margin:0;max-height:240px;overflow:auto}
+.copy{align-self:flex-start;border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:6px;padding:5px 12px;font:600 12px var(--sans);cursor:pointer}
+.copy:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="wrap">
+  <main>
+    <div>
+      <h1>Track, round 2</h1>
+      <p class="sub">Tokens are now the main number, with price as the secondary figure. The tray icon shows the Claude, Codex and Copilot marks as three dots: a mark lights up in its color while that tool is running. Click the tray icon to open the popover. <span class="tag">example data</span></p>
+    </div>
+    <div class="stage">
+      <div class="pop" id="pop" role="dialog" aria-label="Track usage popover">
+        <div class="phead"><b>Track</b><span>Updated 4s ago</span></div>
+        <div class="live" id="live"></div>
+        <div class="seg" id="seg" role="group" aria-label="Period"></div>
+        <div id="body"></div>
+        <div class="foot"><span>Week resets Mon 00:00 · every 30 s</span><span>Refresh</span></div>
+      </div>
+      <div class="taskbar">
+        <button class="trayicon" id="trayBtn" aria-expanded="true" aria-controls="pop"><span id="trayArt" style="display:grid"></span></button>
+        <span class="clock">17:42<br>18-11-2026</span>
+      </div>
+    </div>
+    <section class="lab" aria-label="Icon preview">
+      <h2>Tray icon at real size</h2>
+      <p class="sub" style="font-size:12px">Windows draws tray icons at 16 px (100%), 24 px (150%) and 32 px (200%). Each row shows one running state.</p>
+      <div class="chips" id="chips"></div>
+      <h2>Enlarged</h2>
+      <div class="big" id="big"></div>
+      <p class="sub" style="font-size:11.5px">The marks here are simplified stand-ins. The app will use each vendor's official logo files, redrawn for 16 px.</p>
+    </section>
+  </main>
+
+  <aside class="panel" aria-label="Decisions">
+    <h2>Round 2 choices</h2>
+    <div class="fixed">Already decided: <b>modern look</b>, <b>table + tabs</b>, <b>Monday reset</b>, <b>30 s refresh</b>, <b>start with Windows</b>, <b>Copilot in tokens</b>.</div>
+    <div id="qs"></div>
+    <div class="q"><span class="h">Pretend these are running</span>
+      <div class="opts" id="sim"></div>
+    </div>
+    <div class="q"><span class="h">Your choices</span><p>Copy and paste into chat.</p>
+      <pre class="out" id="out"></pre>
+      <button class="copy" type="button" id="copyBtn">Copy choices</button>
+    </div>
+  </aside>
+</div>
+
+<script>
+const Q=[
+ {k:"arrange",h:"Three dots layout",p:"How the three marks sit inside the 16 px icon.",o:[["triangle","Triangle, always three"],["row","Row, always three"],["active","Only running ones, bigger"]]},
+ {k:"idle",h:"Idle tool looks",p:"Ignored when only running tools are shown.",o:[["grey","Grey mark"],["dot","Small grey dot"],["ring","Empty ring"]]},
+ {k:"none",h:"When nothing runs",p:"",o:[["grey","All three grey"],["track","Track bar mark"]]},
+ {k:"count",h:"Token total counts",p:"Cache reads are often over 80% of Claude tokens and are cheap. Pick what the big number means.",o:[["all","Everything"],["nocache","Without cache reads"],["io","Input + output only"]]},
+ {k:"split",h:"Under the token number",p:"",o:[["price","Price"],["price+split","Price + in/out/cache"],["split","In/out/cache only"]]},
+ {k:"rowicon",h:"Logos in the popover rows",p:"",o:[["yes","Yes"],["no","Color swatch"]]},
+];
+const S={arrange:"triangle",idle:"grey",none:"grey",count:"all",split:"price",rowicon:"yes",period:"today"};
+try{Object.assign(S,JSON.parse(localStorage.getItem("track-mock-v2")||"{}"))}catch(e){}
+const ORDER=["claude","codex","copilot"];
+const D={ /* example numbers only: in, out, cache write, cache read (millions) and $ */
+ claude:{name:"Claude Code",run:true,detail:"2 sessions · opus-5-5",
+   today:{i:.31,o:.92,w:2.1,r:18.07,c:14.82},week:{i:1.3,o:3.8,w:8.6,r:74.5,c:61.3},month:{i:4.4,o:12.9,w:29.6,r:254.1,c:212.75}},
+ codex:{name:"Codex",run:false,detail:"idle · 41 min ago",
+   today:{i:3.1,o:.42,w:0,r:1.38,c:3.1},week:{i:17.2,o:2.3,w:0,r:8.1,c:18.44},month:{i:52.6,o:7.1,w:0,r:24.4,c:57.02}},
+ copilot:{name:"Copilot",run:true,detail:"1 session · gpt-6.1-sol",
+   today:{i:1.9,o:.21,w:.6,r:.49,c:2.4},week:{i:7.9,o:.9,w:2.5,r:2.1,c:9.85},month:{i:24.6,o:2.8,w:7.9,r:6.5,c:31.6}}
+};
+const $=id=>document.getElementById(id);
+
+/* simplified stand-in marks, drawn in a 16x16 box */
+function mark(k,color){
+  if(k==="claude"){let s="";for(let a=0;a<12;a++){const t=a*Math.PI/6+.13,L=a%3===0?7.2:a%2?5.4:6.3;s+=`<line x1="8" y1="8" x2="${(8+Math.cos(t)*L).toFixed(2)}" y2="${(8+Math.sin(t)*L).toFixed(2)}"/>`}
+    return `<g stroke="${color}" stroke-width="1.9" stroke-linecap="round">${s}</g>`;}
+  if(k==="codex")return `<rect x="1.2" y="2.2" width="13.6" height="11.6" rx="3.2" fill="${color}"/><path d="M4.4 6l2.4 2-2.4 2" fill="none" stroke="var(--bgmark,#fff)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.6 10.3h3" stroke="var(--bgmark,#fff)" stroke-width="1.6" stroke-linecap="round"/>`;
+  return `<path d="M3 6.2C3 3.6 5 2 8 2s5 1.6 5 4.2v1.3c1 .3 1.6 1.1 1.6 2.1v1.2c0 .9-.5 1.6-1.3 2C12 14.4 10.3 15 8 15s-4-.6-5.3-2.2c-.8-.4-1.3-1.1-1.3-2V9.6c0-1 .6-1.8 1.6-2.1z" fill="${color}"/><rect x="4.1" y="5" width="3.4" height="3" rx="1.3" fill="var(--bgmark,#fff)"/><rect x="8.5" y="5" width="3.4" height="3" rx="1.3" fill="var(--bgmark,#fff)"/><rect x="5.6" y="10.2" width="1.3" height="2.2" rx=".6" fill="var(--bgmark,#fff)"/><rect x="9.1" y="10.2" width="1.3" height="2.2" rx=".6" fill="var(--bgmark,#fff)"/>`;
+}
+const colorOf=k=>`var(--${k})`;
+function place(k,cx,cy,s,on){
+  const tr=`translate(${(cx-s/2).toFixed(2)} ${(cy-s/2).toFixed(2)}) scale(${(s/16).toFixed(3)})`;
+  if(on)return `<g transform="${tr}">${mark(k,colorOf(k))}</g>`;
+  if(S.idle==="dot")return `<circle cx="${cx}" cy="${cy}" r="${(s*.16).toFixed(2)}" fill="currentColor" opacity=".45"/>`;
+  if(S.idle==="ring")return `<circle cx="${cx}" cy="${cy}" r="${(s*.3).toFixed(2)}" fill="none" stroke="currentColor" stroke-width="1" opacity=".5"/>`;
+  return `<g transform="${tr}" opacity=".38" style="--bgmark:transparent">${mark(k,"currentColor")}</g>`;
+}
+function trayIcon(size,run){
+  const on=ORDER.filter(k=>run[k]); let g="";
+  if(!on.length&&S.none==="track"){g=[[2,9,5],[6.7,5,9],[11.4,2,12]].map(([x,y,h])=>`<rect x="${x}" y="${y}" width="2.6" height="${h}" rx="1" fill="currentColor"/>`).join("");}
+  else if(S.arrange==="active"&&on.length){
+    const P={1:[[8,8,15]],2:[[4.2,8,8],[11.8,8,8]],3:[[8,4.1,7.8],[3.9,11.9,7.8],[12.1,11.9,7.8]]}[on.length];
+    g=on.map((k,i)=>place(k,P[i][0],P[i][1],P[i][2],true)).join("");
+  }else{
+    const P=S.arrange==="row"?[[2.7,8,5.6],[8,8,5.6],[13.3,8,5.6]]:[[8,4.1,7.8],[3.9,11.9,7.8],[12.1,11.9,7.8]];
+    const mode=S.arrange==="active"?"triangle":S.arrange;
+    g=ORDER.map((k,i)=>place(k,P[i][0],P[i][1],P[i][2],!!run[k])).join("");
+  }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true">${g}</svg>`;
+}
+const curRun=()=>Object.fromEntries(ORDER.map(k=>[k,D[k].run]));
+const tok=n=>n>=1?n.toFixed(1)+"M":Math.round(n*1000)+"k";
+function tokens(d){return S.count==="all"?d.i+d.o+d.w+d.r:S.count==="nocache"?d.i+d.o+d.w:d.i+d.o}
+function under(d){const p="$"+d.c.toFixed(2),sp=`in ${tok(d.i+d.w)} · out ${tok(d.o)} · cache ${tok(d.r)}`;
+  return S.split==="price"?p:S.split==="split"?sp:p+" · "+sp}
+function rowName(k){return S.rowicon==="yes"?`<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">${mark(k,colorOf(k))}</svg>`:`<span style="width:8px;height:8px;border-radius:2px;background:${colorOf(k)};display:inline-block"></span>`}
+
+function render(){
+  $("trayArt").innerHTML=trayIcon(18,curRun());
+  const runNames=ORDER.filter(k=>D[k].run).map(k=>D[k].name);
+  $("trayBtn").title="Track · "+(runNames.length?runNames.join(", ")+" running":"nothing running");
+  $("live").innerHTML=ORDER.map(k=>`<div class="liverow ${D[k].run?"":"idle"}"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">${mark(k,D[k].run?colorOf(k):"currentColor")}</svg>${D[k].name}${D[k].run?' <span class="pill">running</span>':""}<span class="m">${D[k].detail}</span></div>`).join("");
+  $("seg").innerHTML=[["today","Today"],["week","Week"],["month","Month"]].map(([k,l])=>`<button type="button" data-p="${k}" aria-pressed="${S.period===k}">${l}</button>`).join("");
+  const per=S.period, max=Math.max(...ORDER.map(k=>tokens(D[k][per])));
+  const tot=ORDER.reduce((a,k)=>{const d=D[k][per];["i","o","w","r","c"].forEach(f=>a[f]+=d[f]);return a},{i:0,o:0,w:0,r:0,c:0});
+  const head={today:"Today",week:"This week",month:"This month"}[per];
+  const unit={all:"Tokens",nocache:"Tokens excl. cache reads",io:"Input + output tokens"}[S.count];
+  $("body").innerHTML=`<table class="u"><thead><tr><th>${head}</th><th>${unit}</th></tr></thead><tbody>`+
+    ORDER.map(k=>{const d=D[k][per];return `<tr><td><span class="name">${rowName(k)}${D[k].name}</span><div class="bar"><i style="width:${(tokens(d)/max*100).toFixed(0)}%;background:${colorOf(k)}"></i></div></td><td><span class="tok">${tok(tokens(d))}</span><span class="sm">${under(d)}</span></td></tr>`}).join("")+
+    `<tr class="total"><td>Total</td><td><span class="tok">${tok(tokens(tot))}</span><span class="sm">${under(tot)}</span></td></tr></tbody></table>`;
+  const states=[[{},"Nothing running"],[{claude:1},"Claude"],[{codex:1},"Codex"],[{copilot:1},"Copilot"],[{claude:1,copilot:1},"Claude + Copilot"],[{claude:1,codex:1,copilot:1},"All three"]];
+  $("chips").innerHTML=states.map(([r,l])=>["lt","dk"].map(c=>`<div class="chip ${c}"><div class="icons">${[16,24,32].map(s=>trayIcon(s,r)).join("")}</div>${l} · ${c==="lt"?"light":"dark"}</div>`).join("")).join("");
+  $("big").innerHTML=["lt","dk"].map(c=>`<figure><div class="${c}" style="padding:14px;border-radius:12px">${trayIcon(96,curRun())}</div>${c==="lt"?"Light":"Dark"} taskbar, current state</figure>`).join("");
+  $("qs").innerHTML=Q.map(q=>`<div class="q" role="radiogroup" aria-labelledby="h-${q.k}"><span class="h" id="h-${q.k}">${q.h}</span>${q.p?`<p>${q.p}</p>`:""}<div class="opts">${q.o.map(([v,l])=>`<label><input type="radio" id="${q.k}-${v}" name="${q.k}" value="${v}" ${S[q.k]===v?"checked":""}>${l}</label>`).join("")}</div></div>`).join("");
+  $("sim").innerHTML=ORDER.map(k=>`<label><input type="checkbox" id="run-${k}" data-run="${k}" ${D[k].run?"checked":""}>${D[k].name}</label>`).join("");
+  const out={style:"modern",layout:"table",metric:"tokens-first",copilot:"tokens",week:"mon",refresh:"30s",startup:"yes",tray:"logo-dots",...S}; delete out.period;
+  $("out").textContent=JSON.stringify(out,null,2);
+  try{localStorage.setItem("track-mock-v2",JSON.stringify(S))}catch(e){}
+}
+document.addEventListener("change",e=>{const t=e.target;
+  if(t.dataset.run){const k=t.dataset.run;D[k].run=t.checked;D[k].detail=t.checked?"1 session":"idle";render();$("run-"+k).focus();return;}
+  if(t.name in S){S[t.name]=t.value;render();$(t.id).focus();}});
+document.addEventListener("click",e=>{const b=e.target.closest("[data-p]");if(b){S.period=b.dataset.p;render();}});
+$("trayBtn").addEventListener("click",()=>{const p=$("pop");p.hidden=!p.hidden;$("trayBtn").setAttribute("aria-expanded",String(!p.hidden));});
+$("copyBtn").addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("out").textContent);$("copyBtn").textContent="Copied";}
+  catch(e){const r=document.createRange();r.selectNodeContents($("out"));const s=getSelection();s.removeAllRanges();s.addRange(r);$("copyBtn").textContent="Selected, press Ctrl+C";}
+  setTimeout(()=>$("copyBtn").textContent="Copy choices",2000);});
+render();
+</script>

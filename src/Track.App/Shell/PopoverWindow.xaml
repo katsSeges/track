@@ -1,0 +1,192 @@
+<Window x:Class="Track.App.Shell.PopoverWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:Track.App.Shell"
+        xmlns:usage="clr-namespace:Track.Core.Usage;assembly=Track.Core"
+        Title="Track" Width="330" SizeToContent="Height"
+        WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
+        Background="Transparent" FontFamily="{StaticResource Sans}" FontSize="13"
+        Foreground="{DynamicResource Fg}" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+    <WindowChrome.WindowChrome>
+        <WindowChrome GlassFrameThickness="-1" CaptionHeight="0" ResizeBorderThickness="0" CornerRadius="12" />
+    </WindowChrome.WindowChrome>
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+        <shell:NullToCollapsedConverter x:Key="NotNull" />
+        <shell:PeriodConverter x:Key="IsPeriod" />
+    </Window.Resources>
+
+    <Border x:Name="Surface" Background="{DynamicResource PopBg}" CornerRadius="12" Padding="10">
+        <StackPanel>
+            <!-- Header -->
+            <DockPanel Margin="4,2,4,8">
+                <TextBlock DockPanel.Dock="Right" Text="{Binding UpdatedText}" Style="{StaticResource Small}" FontSize="11" VerticalAlignment="Center" />
+                <TextBlock Text="Track" FontWeight="SemiBold" />
+            </DockPanel>
+
+            <!-- What is running -->
+            <Border Background="{DynamicResource RowBg}" CornerRadius="8" Padding="4" Margin="0,0,0,8"
+                    Visibility="{Binding LiveRows.Count, Converter={StaticResource NotNull}}">
+                <ItemsControl ItemsSource="{Binding LiveRows}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource HoverRow}" Padding="4,3" Tag="{Binding Tool}"
+                                    MouseEnter="Row_MouseEnter" MouseLeave="Row_MouseLeave" GotKeyboardFocus="Row_GotFocus" LostKeyboardFocus="Row_LostFocus">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <shell:LogoIcon Key="{Binding LogoKey}" Active="{Binding Working}" Width="14" Height="14" Margin="0,0,8,0" />
+                                    <!-- The detail gives way (trimmed) before the name or the running pill do. -->
+                                    <TextBlock Grid.Column="2" Text="{Binding Detail}" Style="{StaticResource MonoSmall}" FontSize="10.5" VerticalAlignment="Center"
+                                               HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" Margin="8,0,0,0" ToolTip="{Binding Detail}" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{DynamicResource Fg}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Working}" Value="False">
+                                                            <Setter Property="Foreground" Value="{DynamicResource Muted}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <Border Background="{DynamicResource OkSoft}" CornerRadius="9" Padding="6,0,6,1" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                Visibility="{Binding Working, Converter={StaticResource Visible}}">
+                                            <TextBlock Text="running" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource Ok}" />
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+
+            <!-- Today / Week / Month (full width; the chart's minimize button lives on the chart's own header) -->
+            <Border Background="{DynamicResource RowBg}" CornerRadius="7" Padding="2" Margin="0,0,0,8">
+                <UniformGrid Columns="3">
+                    <RadioButton Style="{StaticResource Segment}" Content="Today" GroupName="Period"
+                                 IsChecked="{Binding SelectedPeriod, Converter={StaticResource IsPeriod}, ConverterParameter={x:Static usage:Period.Today}}" />
+                    <RadioButton Style="{StaticResource Segment}" Content="Week" GroupName="Period"
+                                 IsChecked="{Binding SelectedPeriod, Converter={StaticResource IsPeriod}, ConverterParameter={x:Static usage:Period.Week}}" />
+                    <RadioButton Style="{StaticResource Segment}" Content="Month" GroupName="Period"
+                                 IsChecked="{Binding SelectedPeriod, Converter={StaticResource IsPeriod}, ConverterParameter={x:Static usage:Period.Month}}" />
+                </UniformGrid>
+            </Border>
+
+            <!-- Usage chart (round 5). The header row (title, top value, minimize) always shows; minimizing
+                 collapses only the bars and the comparison, so the rows below just move up (user review 2026-11-18). -->
+            <StackPanel Margin="4,0,4,6">
+                <DockPanel>
+                    <Button x:Name="ChartToggle" DockPanel.Dock="Right" Command="{Binding ToggleChartCommand}" Margin="6,0,0,0"
+                            ToolTip="{Binding ChartToggleText}" AutomationProperties.Name="{Binding ChartToggleText}"
+                            Width="18" Height="18" Cursor="Hand" VerticalAlignment="Center">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="Disc" CornerRadius="9" Background="{DynamicResource RowBg}" BorderThickness="1" BorderBrush="Transparent">
+                                    <Grid Width="8" Height="8">
+                                        <Rectangle Height="1.5" Fill="{DynamicResource Muted}" VerticalAlignment="Center" RadiusX="0.75" RadiusY="0.75" />
+                                        <Rectangle x:Name="Upright" Width="1.5" Fill="{DynamicResource Muted}" HorizontalAlignment="Center" RadiusX="0.75" RadiusY="0.75" Visibility="Collapsed" />
+                                    </Grid>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <!-- minus while the chart shows, plus while it is minimized -->
+                                    <DataTrigger Binding="{Binding ChartVisible}" Value="False">
+                                        <Setter TargetName="Upright" Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Disc" Property="Background" Value="{DynamicResource Line}" />
+                                    </Trigger>
+                                    <Trigger Property="IsKeyboardFocused" Value="True">
+                                        <Setter TargetName="Disc" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding Chart.TopText}" Style="{StaticResource MonoSmall}" VerticalAlignment="Center"
+                               Visibility="{Binding ChartVisible, Converter={StaticResource Visible}}" />
+                    <TextBlock Text="{Binding ChartTitle}" Style="{StaticResource MonoSmall}" VerticalAlignment="Center" />
+                </DockPanel>
+                <StackPanel Visibility="{Binding ChartVisible, Converter={StaticResource Visible}}" Margin="0,3,0,0">
+                    <shell:UsageChart x:Name="ChartView" Chart="{Binding Chart}" SelectCommand="{Binding SelectBucketCommand}" BarsHeight="64" />
+                    <TextBlock Text="{Binding ComparisonText}" Style="{StaticResource MonoSmall}" FontSize="10.5" Margin="0,4,0,0"
+                               Visibility="{Binding ComparisonText, Converter={StaticResource NotNull}}" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Usage table: tokens first, price · in · out · cache underneath -->
+            <DockPanel Margin="4,0,4,4">
+                <TextBlock DockPanel.Dock="Right" Text="Tokens" Style="{StaticResource Small}" />
+                <TextBlock Text="{Binding PeriodLabel}" Style="{StaticResource Small}" />
+            </DockPanel>
+            <ItemsControl ItemsSource="{Binding Rows}" Focusable="False">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0">
+                            <Border Style="{StaticResource HoverRow}" Padding="4,6" Margin="0,1,0,0" Tag="{Binding Tool}"
+                                    MouseEnter="Row_MouseEnter" MouseLeave="Row_MouseLeave" GotKeyboardFocus="Row_GotFocus" LostKeyboardFocus="Row_LostFocus">
+                                <!-- Line 1: logo name … big tokens. Line 2: price · in · out · cache. Line 3: usage bar. -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <shell:LogoIcon Key="{Binding LogoKey}" Width="14" Height="14" Margin="0,0,7,0"
+                                                        Visibility="{Binding DataContext.RowLogos, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
+                                        <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="Medium" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="{Binding TokenText}" FontFamily="{StaticResource Mono}" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SubText}" Style="{StaticResource MonoSmall}" HorizontalAlignment="Right" Margin="0,2,0,0" />
+                                    <shell:BarFill Grid.Row="2" Grid.ColumnSpan="2" Fraction="{Binding BarFraction}" Key="{Binding LogoKey}" Height="3" Margin="0,5,0,0" />
+                                </Grid>
+                            </Border>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Total -->
+            <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="4,6"
+                    Visibility="{Binding TotalRow, Converter={StaticResource NotNull}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Total" FontSize="12.5" FontWeight="SemiBold" />
+                    <TextBlock Grid.Column="1" Text="{Binding TotalRow.TokenText}" FontFamily="{StaticResource Mono}" FontSize="13" FontWeight="Bold" HorizontalAlignment="Right" />
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding TotalRow.SubText}" Style="{StaticResource MonoSmall}" HorizontalAlignment="Right" Margin="0,2,0,0" />
+                </Grid>
+            </Border>
+
+            <TextBlock Text="{Binding EmptyText}" Style="{StaticResource Small}" FontSize="12" TextWrapping="Wrap" TextAlignment="Center" Margin="4,10"
+                       Visibility="{Binding EmptyText, Converter={StaticResource NotNull}}" />
+            <TextBlock Text="{Binding StatusText}" Foreground="{DynamicResource Warn}" FontSize="11" TextWrapping="Wrap" Margin="4,6,4,0"
+                       Visibility="{Binding StatusText, Converter={StaticResource NotNull}}" />
+
+            <!-- Footer -->
+            <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="4,8,4,0">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Refresh" Command="{Binding RefreshCommand}" />
+                    <TextBlock Text="{Binding ResetText}" Style="{StaticResource Small}" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+        </StackPanel>
+    </Border>
+</Window>

@@ -1,0 +1,291 @@
+<title>Track Top Island</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: left = Windows desktop corner with tray + popover and a large icon lab; right = decision panel. Stacks on phone. */
+:root{
+  --bg:#e9ebef; --desk1:#9fb4cc; --desk2:#6f86a3; --fg:#1d1d1f; --muted:#6e6e73; --line:rgba(0,0,0,.09);
+  --panel:#ffffff; --pop:rgba(246,246,248,.88); --popsolid:#f6f6f8; --row:rgba(0,0,0,.035);
+  --accent:#0a66d8; --ok:#28a745; --warn:#d98a00; --task:#e8ecf2; --taskfg:#333;
+  --claude:#d97757; --codex:#2b2b2e; --copilot:#7a4fd6;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",sans-serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.84); --popsolid:#2e2e33; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#e4e4ea; --copilot:#a98bff; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.84); --popsolid:#2e2e33; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#e4e4ea; --copilot:#a98bff; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:13px}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:28px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}}
+main{display:flex;flex-direction:column;gap:20px;min-width:0}
+h1{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px}
+h2{font-size:14px;margin:0}
+.sub{color:var(--muted);margin:0;max-width:64ch;line-height:1.5}
+.tag{display:inline-block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--warn);border:1px solid currentColor;border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+
+.stage{position:relative;border-radius:12px;overflow:hidden;min-height:560px;background:linear-gradient(160deg,var(--desk1),var(--desk2));display:flex;flex-direction:column;justify-content:flex-end}
+.taskbar{height:44px;background:var(--task);color:var(--taskfg);display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 14px;font-size:12px;border-top:1px solid var(--line)}
+.trayicon{width:30px;height:30px;border-radius:6px;display:grid;place-items:center;cursor:pointer;background:transparent;border:0;color:inherit}
+.trayicon:hover,.trayicon[aria-expanded="true"]{background:var(--row)}
+.trayicon:focus-visible{outline:2px solid var(--accent)}
+.clock{text-align:right;line-height:1.2}
+
+.pop{position:absolute;right:12px;bottom:54px;width:330px;max-width:calc(100% - 24px);background:var(--pop);backdrop-filter:blur(30px) saturate(1.6);-webkit-backdrop-filter:blur(30px) saturate(1.6);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.28),0 0 0 .5px rgba(0,0,0,.15);padding:10px}
+.phead{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 8px}
+.phead span{color:var(--muted);font-size:11px}
+.live{display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:8px;background:var(--row);margin-bottom:8px}
+.liverow{display:flex;align-items:center;gap:8px;font-size:12px;padding:2px}
+.liverow svg{flex:none}
+.liverow.idle{color:var(--muted)}
+.liverow .m{color:var(--muted);margin-left:auto;font-family:var(--mono);font-size:11px}
+.pill{font-size:10px;font-weight:600;padding:1px 6px;border-radius:9px;background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.seg{display:flex;background:var(--row);border-radius:7px;padding:2px;margin:0 0 8px}
+.seg button{flex:1;border:0;background:transparent;color:var(--fg);font:500 11.5px var(--sans);padding:4px 0;border-radius:5px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--popsolid);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.seg button:focus-visible{outline:2px solid var(--accent)}
+table.u{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.u th{font-weight:500;color:var(--muted);font-size:10.5px;text-align:right;padding:2px 4px 4px}
+table.u th:first-child{text-align:left}
+table.u td{padding:7px 4px;text-align:right;border-top:1px solid var(--line);vertical-align:top}
+table.u td:first-child{text-align:left;font-size:12.5px;font-weight:500}
+.name{display:flex;align-items:center;gap:7px}
+.tok{font-family:var(--mono);font-size:13px;font-weight:500}
+.sm{display:block;color:var(--muted);font-size:10px;font-family:var(--mono);margin-top:2px}
+.price{cursor:default}
+tr.total td{font-weight:600}
+.bar{height:3px;border-radius:2px;background:var(--row);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;border-radius:2px}
+.foot{display:flex;justify-content:space-between;color:var(--muted);font-size:10.5px;padding:8px 4px 0;border-top:1px solid var(--line);margin-top:6px}
+
+.lab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.chip{border-radius:8px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;font-size:10.5px;text-align:center}
+.chip .icons{display:flex;align-items:end;gap:12px;height:36px}
+.lt{background:#eef1f5;color:#222;--codex:#2b2b2e;--claude:#d97757;--copilot:#7a4fd6}
+.dk{background:#1c1f25;color:#e6e6e6;--codex:#e4e4ea;--claude:#e08560;--copilot:#a98bff}
+.big{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.big figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px;align-self:start}
+.q{display:flex;flex-direction:column;gap:6px}
+.q .h{font-weight:600;font-size:12px}
+.q p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.45}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opts label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px}
+.opts input{accent-color:var(--accent);margin:0}
+.opts label:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.opts label:has(input:focus-visible){outline:2px solid var(--accent)}
+.fixed{font-size:11.5px;color:var(--muted);line-height:1.6}
+.fixed b{color:var(--fg);font-weight:500}
+pre.out{background:var(--row);border-radius:8px;padding:10px;font:11px/1.5 var(--mono);white-space:pre-wrap;margin:0;max-height:240px;overflow:auto}
+.copy{align-self:flex-start;border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:6px;padding:5px 12px;font:600 12px var(--sans);cursor:pointer}
+.copy:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* round 4: top island. The island is black in both themes on purpose, like the phone it borrows from. */
+.stage4{position:relative;border-radius:12px;overflow:hidden;height:560px;background:linear-gradient(160deg,var(--desk1),var(--desk2))}
+.win{position:absolute;inset:0 0 44px 0;background:var(--panel);display:flex;flex-direction:column}
+.win .tb{height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--muted)}
+.win .tb i{width:150px;height:20px;border-radius:6px;background:var(--row);display:block}
+.win .doc{flex:1;padding:70px 28px 20px;display:flex;flex-direction:column;gap:10px}
+.win .doc span{display:block;height:9px;border-radius:4px;background:var(--row)}
+.task4{position:absolute;left:0;right:0;bottom:0;height:44px;background:var(--task);color:var(--taskfg);display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 14px;font-size:12px;border-top:1px solid var(--line)}
+.hot{position:absolute;top:0;left:0;right:0;height:8px;z-index:7}
+.hot.show{background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--accent) 45%,transparent) 0 6px,transparent 6px 12px)}
+.iw{position:absolute;top:6px;left:50%;transform:translateX(-50%);display:flex;gap:6px;align-items:flex-start;z-index:8;
+  --claude:#e08560;--codex:#e4e4ea;--copilot:#a98bff;--bgmark:#000;transition:transform .42s cubic-bezier(.3,1.35,.5,1),opacity .25s}
+.iw.gone{transform:translate(-50%,-150%);opacity:0;pointer-events:none}
+.iw:focus-visible{outline:none}
+.iw:focus-visible .isl{box-shadow:0 0 0 2px var(--accent),0 6px 20px rgba(0,0,0,.35)}
+.isl,.bub{background:#000;color:#f5f5f7;box-shadow:0 6px 20px rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.06)}
+.isl{border-radius:19px;min-height:36px;display:flex;align-items:center;gap:9px;padding:0 14px 0 10px;font:500 12.5px var(--sans);white-space:nowrap;
+  transition:border-radius .35s cubic-bezier(.3,1.3,.5,1),padding .35s,width .35s}
+.isl .tm{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12.5px}
+.isl .dim{color:#9a9aa1}
+.isl.exp{flex-direction:column;align-items:stretch;gap:10px;border-radius:26px;padding:14px 16px;width:min(380px,calc(100vw - 64px));white-space:normal}
+.bub{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;gap:2px}
+.logos{display:flex}.logos svg+svg{margin-left:-4px}
+.wave{display:flex;gap:2px;align-items:center;height:14px}
+.wave i{width:3px;height:6px;border-radius:2px;background:currentColor}
+@media (prefers-reduced-motion:no-preference){
+ .wave i{animation:wv .9s ease-in-out infinite}.wave i:nth-child(2){animation-delay:-.25s}.wave i:nth-child(3){animation-delay:-.5s}.wave i:nth-child(4){animation-delay:-.7s}
+ .pdot{animation:pd 1.6s ease-in-out infinite}}
+@keyframes wv{0%,100%{height:4px}50%{height:14px}}
+@keyframes pd{50%{opacity:.35}}
+.pdot{width:8px;height:8px;border-radius:50%;background:currentColor}
+.xh{display:flex;align-items:center;gap:8px;font-weight:600}
+.xh span{margin-left:auto;font-weight:400;color:#9a9aa1;font-size:11px;font-family:var(--mono)}
+.xr{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.1)}
+.xr .nm{display:flex;flex-direction:column;gap:2px;min-width:0}
+.xr .nm small{color:#9a9aa1;font-size:10.5px;font-family:var(--mono)}
+.xr .rt{margin-left:auto;text-align:right;display:flex;flex-direction:column;gap:2px}
+.xr .rt b{font-family:var(--mono);font-size:15px;font-weight:500;font-variant-numeric:tabular-nums}
+.xr .rt small{color:#9a9aa1;font-size:10.5px;font-family:var(--mono)}
+.xf{color:#9a9aa1;font-size:11px;font-family:var(--mono);border-top:1px solid rgba(255,255,255,.1);padding-top:8px}
+.xseg{display:flex;background:rgba(255,255,255,.08);border-radius:7px;padding:2px}
+.xseg button{flex:1;border:0;background:transparent;color:#f5f5f7;font:500 11px var(--sans);padding:3px 0;border-radius:5px;cursor:pointer}
+.xseg button[aria-pressed="true"]{background:rgba(255,255,255,.18)}
+.xt{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.xt td{padding:5px 0;border-top:1px solid rgba(255,255,255,.1)}
+.xt td:last-child{text-align:right;font-family:var(--mono)}
+.xt small{display:block;color:#9a9aa1;font-size:10px;font-family:var(--mono)}
+.ok{color:#3ccf62}
+.stat{font-size:12px;color:var(--muted);margin:0}
+.btns{display:flex;gap:6px;flex-wrap:wrap}
+.btns button{border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:6px;padding:4px 10px;font:500 12px var(--sans);cursor:pointer}
+.btns button:focus-visible{outline:2px solid var(--accent)}
+.simrow{display:flex;align-items:center;gap:8px;font-size:12px}
+.simrow label{display:flex;align-items:center;gap:6px}
+</style>
+
+<div class="wrap">
+  <main>
+    <div>
+      <h1>Track, round 4</h1>
+      <p class="sub">An optional island at the top center of the screen, next to the tray icon. While an agent works it shows which one and for how long, with a live timer. It hides once everything has been idle for a while. Move the mouse to the very top edge to bring it back, and hover the island to open it. <span class="tag">example data</span></p>
+    </div>
+    <div class="stage4" id="stage">
+      <div class="win" aria-hidden="true"><div class="tb">● ● ●<i></i></div><div class="doc"><span style="width:70%"></span><span style="width:92%"></span><span style="width:84%"></span><span style="width:60%"></span><span style="width:88%"></span></div></div>
+      <div class="hot" id="hot" title="Top edge: hover here"></div>
+      <div class="iw" id="iw" tabindex="0" role="button" aria-label="Track island"></div>
+      <div class="task4"><span id="trayArt" style="display:grid" title="Track tray icon"></span><span class="clock">17:42<br>18-11-2026</span></div>
+    </div>
+    <p class="stat" id="stat"></p>
+  </main>
+
+  <aside class="panel" aria-label="Decisions">
+    <h2>Round 4 choices</h2>
+    <div class="fixed">The tray icon and popover stay as decided. The island is extra.</div>
+    <div id="qs"></div>
+    <div class="q"><span class="h">Try it</span><p>Tick an agent to start it, untick it to finish it.</p>
+      <div id="sim" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div class="btns"><button type="button" id="skip">Skip ahead: idle time passes</button><button type="button" id="hotBtn">Show top edge zone</button></div>
+    </div>
+    <div class="q"><span class="h">Your choices</span><p>Copy and paste into chat.</p>
+      <pre class="out" id="out"></pre>
+      <button class="copy" type="button" id="copyBtn">Copy choices</button>
+    </div>
+  </aside>
+</div>
+
+<script>
+const Q=[
+ {k:"island",h:"Top island",p:"",o:[["on","On, with tray"],["off","Off, tray only"]]},
+ {k:"timerFrom",h:"Timer counts from",p:"",o:[["turn","Your last prompt (current task)"],["session","Session start"]]},
+ {k:"compact",h:"Small island shows",p:"",o:[["timer","Logo + timer"],["tokens","+ session tokens"],["model","+ model"]]},
+ {k:"activity",h:"While the agent works",p:"Like the music bars on a phone.",o:[["wave","Waveform"],["dot","Pulsing dot"],["none","Nothing"]]},
+ {k:"multi",h:"Two or more agents running",p:"",o:[["split","Main + bubble"],["merged","One island, all logos"],["cycle","Rotate every 4 s"]]},
+ {k:"done",h:"When an agent finishes",p:"",o:[["show","Show \"done\" for 5 s"],["none","Nothing"]]},
+ {k:"hideAfter",h:"Hide after everything is idle for",p:"",o:[["1m","1 min"],["5m","5 min"],["15m","15 min"]]},
+ {k:"reveal",h:"Top edge reveal delay",p:"A short delay avoids popping up when you reach for browser tabs.",o:[["0","Instant"],["300","0.3 s"],["600","0.6 s"]]},
+ {k:"expand",h:"Open the details by",p:"",o:[["hover","Hovering"],["click","Clicking"]]},
+ {k:"expanded",h:"Opened island shows",p:"",o:[["agents","Running agents + today"],["full","Agents + Today/Week/Month table"]]},
+ {k:"monitor",h:"Which screen",p:"",o:[["primary","Main screen"],["mouse","Screen with the mouse"],["all","All screens"]]},
+ {k:"fullscreen",h:"Over full-screen apps",p:"Games, videos, presentations.",o:[["hide","Hide"],["show","Show"]]},
+];
+const S={island:"on",timerFrom:"turn",compact:"timer",activity:"wave",multi:"split",done:"show",hideAfter:"5m",reveal:"300",expand:"hover",expanded:"agents",monitor:"primary",fullscreen:"hide",period:"today"};
+try{Object.assign(S,JSON.parse(localStorage.getItem("track-mock-v4")||"{}"))}catch(e){}
+const ORDER=["claude","codex","copilot"];
+const NOW=()=>Date.now();
+const A={ /* example agents */
+ claude:{name:"Claude Code",model:"opus-5-5",run:true,turn:NOW()-754e3,sess:NOW()-3614e3,tok:1.84,rate:.004},
+ codex:{name:"Codex",model:"gpt-5.6-luna",run:false,turn:0,sess:0,tok:0,rate:.003},
+ copilot:{name:"Copilot",model:"gpt-6.1-sol",run:false,turn:0,sess:0,tok:0,rate:.002}};
+const T={today:{claude:[21.4,14.82],codex:[4.9,3.1],copilot:[3.2,2.4]},week:{claude:[88.2,61.3],codex:[27.6,18.44],copilot:[13.4,9.85]},month:{claude:[301,212.75],codex:[84.1,57.02],copilot:[41.8,31.6]}};
+const V={hidden:false,revealed:false,open:false,done:null};
+const $=id=>document.getElementById(id);
+function mark(k,color){
+  if(k==="claude"){let s="";for(let a=0;a<12;a++){const t=a*Math.PI/6+.13,L=a%3===0?7.2:a%2?5.4:6.3;s+=`<line x1="8" y1="8" x2="${(8+Math.cos(t)*L).toFixed(2)}" y2="${(8+Math.sin(t)*L).toFixed(2)}"/>`}
+    return `<g stroke="${color}" stroke-width="1.9" stroke-linecap="round">${s}</g>`;}
+  if(k==="codex")return `<rect x="1.2" y="2.2" width="13.6" height="11.6" rx="3.2" fill="${color}"/><path d="M4.4 6l2.4 2-2.4 2" fill="none" stroke="var(--bgmark,#fff)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.6 10.3h3" stroke="var(--bgmark,#fff)" stroke-width="1.6" stroke-linecap="round"/>`;
+  return `<path d="M3 6.2C3 3.6 5 2 8 2s5 1.6 5 4.2v1.3c1 .3 1.6 1.1 1.6 2.1v1.2c0 .9-.5 1.6-1.3 2C12 14.4 10.3 15 8 15s-4-.6-5.3-2.2c-.8-.4-1.3-1.1-1.3-2V9.6c0-1 .6-1.8 1.6-2.1z" fill="${color}"/><rect x="4.1" y="5" width="3.4" height="3" rx="1.3" fill="var(--bgmark,#fff)"/><rect x="8.5" y="5" width="3.4" height="3" rx="1.3" fill="var(--bgmark,#fff)"/><rect x="5.6" y="10.2" width="1.3" height="2.2" rx=".6" fill="var(--bgmark,#fff)"/><rect x="9.1" y="10.2" width="1.3" height="2.2" rx=".6" fill="var(--bgmark,#fff)"/>`;
+}
+const logo=(k,s=16)=>`<svg width="${s}" height="${s}" viewBox="0 0 16 16" aria-hidden="true">${mark(k,`var(--${k})`)}</svg>`;
+function trayIcon(){const on=ORDER.filter(k=>A[k].run),P=[[8,4.1],[3.9,11.9],[12.1,11.9]];
+  const g=on.length===1?`<g transform="translate(.75 .75) scale(.906)">${mark(on[0],`var(--${on[0]})`)}</g>`:ORDER.map((k,i)=>`<g transform="translate(${P[i][0]-3.9} ${P[i][1]-3.9}) scale(.4875)" ${A[k].run?"":'opacity=".38" style="--bgmark:transparent"'}>${mark(k,A[k].run?`var(--${k})`:"currentColor")}</g>`).join("");
+  return `<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">${g}</svg>`;}
+const fmtT=ms=>{const s=Math.max(0,Math.floor(ms/1000)),h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60,p=n=>String(n).padStart(2,"0");return h?`${h}:${p(m)}:${p(x)}`:`${m}:${p(x)}`};
+const tok=n=>n>=1?n.toFixed(1)+"M":Math.round(n*1000)+"k";
+const el=k=>NOW()-(S.timerFrom==="turn"?A[k].turn:A[k].sess);
+const running=()=>ORDER.filter(k=>A[k].run).sort((a,b)=>A[a].turn-A[b].turn);
+const act=k=>S.activity==="wave"?`<span class="wave" style="color:var(--${k})"><i></i><i></i><i></i><i></i></span>`:S.activity==="dot"?`<span class="pdot" style="color:var(--${k})"></span>`:"";
+function info(k){const t=`<span class="tm">${fmtT(el(k))}</span>`;
+  return S.compact==="tokens"?`${t}<span class="dim tm">${tok(A[k].tok)}</span>`:S.compact==="model"?`<span class="dim">${A[k].model}</span>${t}`:t;}
+const todayTot=()=>ORDER.reduce((a,k)=>[a[0]+T.today[k][0],a[1]+T.today[k][1]],[0,0]);
+
+function islandHTML(){
+  const run=running();
+  if(V.open){
+    const [tt,tc]=todayTot();
+    let h=`<div class="xh">${run.length?`${run.length} agent${run.length>1?"s":""} working`:"Nothing running"}<span>today ${tok(tt)} · $${tc.toFixed(2)}</span></div>`;
+    h+=run.map(k=>`<div class="xr">${logo(k,20)}<div class="nm"><span style="display:flex;align-items:center;gap:8px">${A[k].name}${act(k)}</span><small>${A[k].model} · ${tok(A[k].tok)} this session</small></div><div class="rt"><b>${fmtT(NOW()-A[k].turn)}</b><small>session ${fmtT(NOW()-A[k].sess)}</small></div></div>`).join("");
+    if(!run.length)h+=`<div class="xr" style="color:#9a9aa1">Start Claude Code, Codex or Copilot and it shows up here.</div>`;
+    if(S.expanded==="full"){
+      h+=`<div class="xseg">${[["today","Today"],["week","Week"],["month","Month"]].map(([p,l])=>`<button type="button" data-p="${p}" aria-pressed="${S.period===p}">${l}</button>`).join("")}</div>`;
+      h+=`<table class="xt"><tbody>${ORDER.map(k=>`<tr><td><span style="display:flex;align-items:center;gap:8px">${logo(k,14)}${A[k].name}</span></td><td>${tok(T[S.period][k][0])}<small>$${T[S.period][k][1].toFixed(2)}</small></td></tr>`).join("")}</tbody></table>`;
+    }else h+=`<div class="xf">week ${tok(ORDER.reduce((a,k)=>a+T.week[k][0],0))} · month ${tok(ORDER.reduce((a,k)=>a+T.month[k][0],0))}</div>`;
+    return `<div class="isl exp">${h}</div>`;
+  }
+  if(V.done){const k=V.done.k;return `<div class="isl">${logo(k)}<span>${A[k].name} done</span><span class="ok" aria-hidden="true">✓</span><span class="tm dim">${fmtT(V.done.ms)}</span></div>`;}
+  if(!run.length){const [tt]=todayTot();return `<div class="isl"><span class="dim">Idle</span><span class="tm">today ${tok(tt)}</span></div>`;}
+  if(run.length===1){const k=run[0];return `<div class="isl">${logo(k)}${act(k)}${info(k)}</div>`;}
+  if(S.multi==="merged"){const k=run[0];return `<div class="isl"><span class="logos">${run.map(x=>logo(x)).join("")}</span>${act(k)}${info(k)}<span class="dim">+${run.length-1}</span></div>`;}
+  if(S.multi==="cycle"){const k=run[Math.floor(NOW()/4000)%run.length];return `<div class="isl">${logo(k)}${act(k)}${info(k)}<span class="dim">${run.indexOf(k)+1}/${run.length}</span></div>`;}
+  const k=run[0];return `<div class="isl">${logo(k)}${act(k)}${info(k)}</div><div class="bub">${run.slice(1).map(x=>logo(x,run.length>2?12:16)).join("")}</div>`;
+}
+function visible(){
+  if(S.island==="off")return false;
+  if(V.open||V.revealed||V.done)return true;
+  return running().length>0||!V.hidden;
+}
+function statusText(){
+  if(S.island==="off")return "The island is off. Only the tray icon and its popover are used.";
+  const run=running();
+  if(V.open)return "Opened. Move the mouse away"+(S.expand==="click"?" or click again":"")+" to close it.";
+  if(V.done)return "An agent just finished. The island shows that for 5 seconds.";
+  if(run.length)return `${run.length} running. Timer counts from ${S.timerFrom==="turn"?"your last prompt":"the start of the session"}.`;
+  if(V.hidden&&V.revealed)return "Brought back by the top edge. It hides again when the mouse leaves.";
+  if(V.hidden)return "Hidden after idle time. Move the mouse to the very top edge of the screen to show it.";
+  return `Idle. Hides after ${S.hideAfter.replace("m"," min")} with nothing running.`;
+}
+function renderIsland(){
+  const iw=$("iw"); iw.innerHTML=islandHTML(); iw.classList.toggle("gone",!visible());
+  iw.setAttribute("aria-expanded",String(V.open)); $("trayArt").innerHTML=trayIcon(); $("stat").textContent=statusText();
+}
+function render(){
+  renderIsland();
+  $("qs").innerHTML=Q.map(q=>`<div class="q" role="radiogroup" aria-labelledby="h-${q.k}"><span class="h" id="h-${q.k}">${q.h}</span>${q.p?`<p>${q.p}</p>`:""}<div class="opts">${q.o.map(([v,l])=>`<label><input type="radio" id="${q.k}-${v}" name="${q.k}" value="${v}" ${S[q.k]===v?"checked":""}>${l}</label>`).join("")}</div></div>`).join("");
+  $("sim").innerHTML=ORDER.map(k=>`<div class="simrow"><label><input type="checkbox" id="run-${k}" data-run="${k}" ${A[k].run?"checked":""}><span style="--codex:var(--fg)">${logo(k,14)}</span>${A[k].name}</label></div>`).join("");
+  const out={...S}; delete out.period; $("out").textContent=JSON.stringify(out,null,2);
+  try{localStorage.setItem("track-mock-v4",JSON.stringify(S))}catch(e){}
+}
+let doneT=null,revealT=null,leaveT=null,openT=null;
+document.addEventListener("change",e=>{const t=e.target;
+  if(t.dataset.run){const k=t.dataset.run;
+    if(t.checked){A[k].run=true;A[k].turn=NOW();A[k].sess=A[k].sess&&NOW()-A[k].sess<36e5?A[k].sess:NOW();V.hidden=false;V.done=null;}
+    else{A[k].run=false;if(S.done==="show"){V.done={k,ms:el(k)};clearTimeout(doneT);doneT=setTimeout(()=>{V.done=null;renderIsland()},5000);}}
+    render();$(t.id).focus();return;}
+  if(t.name in S){S[t.name]=t.value;if(t.name==="island"&&t.value==="on")V.hidden=false;render();$(t.id).focus();}});
+$("skip").addEventListener("click",()=>{if(!running().length){V.hidden=true;V.revealed=false;V.open=false;V.done=null;}renderIsland();
+  if(running().length)$("stat").textContent="An agent is still running, so the island stays. Untick it first.";});
+$("hotBtn").addEventListener("click",()=>{$("hot").classList.toggle("show")});
+$("hot").addEventListener("mouseenter",()=>{clearTimeout(leaveT);clearTimeout(revealT);revealT=setTimeout(()=>{V.revealed=true;renderIsland()},+S.reveal)});
+$("hot").addEventListener("mouseleave",()=>clearTimeout(revealT));
+const iw=$("iw");
+iw.addEventListener("mouseenter",()=>{clearTimeout(leaveT);if(S.expand==="hover"){clearTimeout(openT);openT=setTimeout(()=>{V.open=true;renderIsland()},180)}});
+iw.addEventListener("mouseleave",()=>{clearTimeout(openT);leaveT=setTimeout(()=>{V.open=false;V.revealed=false;renderIsland()},350)});
+iw.addEventListener("click",e=>{const b=e.target.closest("[data-p]");if(b){S.period=b.dataset.p;renderIsland();return;}if(S.expand==="click"){V.open=!V.open;renderIsland();}});
+iw.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();V.open=!V.open;renderIsland();}if(e.key==="Escape"){V.open=false;renderIsland();}});
+iw.addEventListener("focus",()=>{if(S.expand==="hover"){V.open=true;renderIsland();}});
+iw.addEventListener("blur",()=>{V.open=false;renderIsland();});
+$("copyBtn").addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("out").textContent);$("copyBtn").textContent="Copied";}
+  catch(e){const r=document.createRange();r.selectNodeContents($("out"));const s=getSelection();s.removeAllRanges();s.addRange(r);$("copyBtn").textContent="Selected, press Ctrl+C";}
+  setTimeout(()=>$("copyBtn").textContent="Copy choices",2000);});
+setInterval(()=>{ORDER.forEach(k=>{if(A[k].run)A[k].tok+=A[k].rate*(.5+Math.random())});renderIsland();},1000);
+render();
+</script>

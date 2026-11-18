@@ -1,0 +1,18 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Dark palette from design/track-mockup-v2.html dark tokens. -->
+    <SolidColorBrush x:Key="Fg" Color="#F2F2F4" />
+    <SolidColorBrush x:Key="Muted" Color="#9A9AA1" />
+    <SolidColorBrush x:Key="Line" Color="#1AFFFFFF" />
+    <SolidColorBrush x:Key="RowBg" Color="#0DFFFFFF" />
+    <SolidColorBrush x:Key="Accent" Color="#4C9BFF" />
+    <SolidColorBrush x:Key="Ok" Color="#3CCF62" />
+    <SolidColorBrush x:Key="OkSoft" Color="#2E3CCF62" />
+    <SolidColorBrush x:Key="Warn" Color="#FFB340" />
+    <SolidColorBrush x:Key="PopBg" Color="#B828282C" />
+    <SolidColorBrush x:Key="PopSolid" Color="#28282C" />
+    <SolidColorBrush x:Key="SegSelected" Color="#3A3A40" />
+    <SolidColorBrush x:Key="Claude" Color="#E08560" />
+    <SolidColorBrush x:Key="Codex" Color="#E4E4EA" />
+    <SolidColorBrush x:Key="Copilot" Color="#A98BFF" />
+</ResourceDictionary>

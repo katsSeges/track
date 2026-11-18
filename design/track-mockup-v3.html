@@ -1,0 +1,298 @@
+<title>Track Tool Visibility</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: left = Windows desktop corner with tray + popover and a large icon lab; right = decision panel. Stacks on phone. */
+:root{
+  --bg:#e9ebef; --desk1:#9fb4cc; --desk2:#6f86a3; --fg:#1d1d1f; --muted:#6e6e73; --line:rgba(0,0,0,.09);
+  --panel:#ffffff; --pop:rgba(246,246,248,.88); --popsolid:#f6f6f8; --row:rgba(0,0,0,.035);
+  --accent:#0a66d8; --ok:#28a745; --warn:#d98a00; --task:#e8ecf2; --taskfg:#333;
+  --claude:#d97757; --codex:#2b2b2e; --copilot:#7a4fd6;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",sans-serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.84); --popsolid:#2e2e33; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#e4e4ea; --copilot:#a98bff; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.84); --popsolid:#2e2e33; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#e4e4ea; --copilot:#a98bff; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:13px}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:28px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}}
+main{display:flex;flex-direction:column;gap:20px;min-width:0}
+h1{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px}
+h2{font-size:14px;margin:0}
+.sub{color:var(--muted);margin:0;max-width:64ch;line-height:1.5}
+.tag{display:inline-block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--warn);border:1px solid currentColor;border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+
+.stage{position:relative;border-radius:12px;overflow:hidden;min-height:560px;background:linear-gradient(160deg,var(--desk1),var(--desk2));display:flex;flex-direction:column;justify-content:flex-end}
+.taskbar{height:44px;background:var(--task);color:var(--taskfg);display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 14px;font-size:12px;border-top:1px solid var(--line)}
+.trayicon{width:30px;height:30px;border-radius:6px;display:grid;place-items:center;cursor:pointer;background:transparent;border:0;color:inherit}
+.trayicon:hover,.trayicon[aria-expanded="true"]{background:var(--row)}
+.trayicon:focus-visible{outline:2px solid var(--accent)}
+.clock{text-align:right;line-height:1.2}
+
+.pop{position:absolute;right:12px;bottom:54px;width:330px;max-width:calc(100% - 24px);background:var(--pop);backdrop-filter:blur(30px) saturate(1.6);-webkit-backdrop-filter:blur(30px) saturate(1.6);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.28),0 0 0 .5px rgba(0,0,0,.15);padding:10px}
+.phead{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 8px}
+.phead span{color:var(--muted);font-size:11px}
+.live{display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:8px;background:var(--row);margin-bottom:8px}
+.liverow{display:flex;align-items:center;gap:8px;font-size:12px;padding:2px}
+.liverow svg{flex:none}
+.liverow.idle{color:var(--muted)}
+.liverow .m{color:var(--muted);margin-left:auto;font-family:var(--mono);font-size:11px}
+.pill{font-size:10px;font-weight:600;padding:1px 6px;border-radius:9px;background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.seg{display:flex;background:var(--row);border-radius:7px;padding:2px;margin:0 0 8px}
+.seg button{flex:1;border:0;background:transparent;color:var(--fg);font:500 11.5px var(--sans);padding:4px 0;border-radius:5px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--popsolid);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.seg button:focus-visible{outline:2px solid var(--accent)}
+table.u{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.u th{font-weight:500;color:var(--muted);font-size:10.5px;text-align:right;padding:2px 4px 4px}
+table.u th:first-child{text-align:left}
+table.u td{padding:7px 4px;text-align:right;border-top:1px solid var(--line);vertical-align:top}
+table.u td:first-child{text-align:left;font-size:12.5px;font-weight:500}
+.name{display:flex;align-items:center;gap:7px}
+.tok{font-family:var(--mono);font-size:13px;font-weight:500}
+.sm{display:block;color:var(--muted);font-size:10px;font-family:var(--mono);margin-top:2px}
+.price{cursor:default}
+tr.total td{font-weight:600}
+.bar{height:3px;border-radius:2px;background:var(--row);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;border-radius:2px}
+.foot{display:flex;justify-content:space-between;color:var(--muted);font-size:10.5px;padding:8px 4px 0;border-top:1px solid var(--line);margin-top:6px}
+
+.lab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.chip{border-radius:8px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;font-size:10.5px;text-align:center}
+.chip .icons{display:flex;align-items:end;gap:12px;height:36px}
+.lt{background:#eef1f5;color:#222;--codex:#2b2b2e;--claude:#d97757;--copilot:#7a4fd6}
+.dk{background:#1c1f25;color:#e6e6e6;--codex:#e4e4ea;--claude:#e08560;--copilot:#a98bff}
+.big{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.big figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px;align-self:start}
+.q{display:flex;flex-direction:column;gap:6px}
+.q .h{font-weight:600;font-size:12px}
+.q p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.45}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opts label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px}
+.opts input{accent-color:var(--accent);margin:0}
+.opts label:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.opts label:has(input:focus-visible){outline:2px solid var(--accent)}
+.fixed{font-size:11.5px;color:var(--muted);line-height:1.6}
+.fixed b{color:var(--fg);font-weight:500}
+pre.out{background:var(--row);border-radius:8px;padding:10px;font:11px/1.5 var(--mono);white-space:pre-wrap;margin:0;max-height:240px;overflow:auto}
+.copy{align-self:flex-start;border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:6px;padding:5px 12px;font:600 12px var(--sans);cursor:pointer}
+.copy:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.why{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.why li{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.45;padding:8px 10px;border-radius:8px;background:var(--row)}
+.why li svg{flex:none;margin-top:2px}
+.why b{font-weight:600}
+.st{margin-left:auto;font-size:10px;font-weight:600;padding:1px 7px;border-radius:9px;white-space:nowrap}
+.st.tray{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.st.list{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.st.gone{background:var(--row);color:var(--muted);border:1px solid var(--line)}
+.num{display:flex;gap:10px;flex-wrap:wrap}
+.num label{display:flex;align-items:center;gap:6px;font-size:12px}
+.num input{width:64px;font:12px var(--mono);padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg)}
+.num input:focus-visible{outline:2px solid var(--accent)}
+.simrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+.simrow .nm{width:92px;display:flex;align-items:center;gap:6px}
+.simrow select{font:12px var(--sans);padding:3px 4px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg)}
+.simrow label{display:flex;align-items:center;gap:4px}
+[data-tool]{cursor:default;outline:none}
+[data-tool]:hover,[data-tool]:focus-visible{background:var(--row)}
+[data-tool]:focus-visible{box-shadow:inset 0 0 0 2px var(--accent)}
+.hc{position:absolute;width:268px;background:var(--pop);backdrop-filter:blur(30px) saturate(1.6);-webkit-backdrop-filter:blur(30px) saturate(1.6);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 36px rgba(0,0,0,.28),0 0 0 .5px rgba(0,0,0,.12);padding:10px 12px;z-index:5;font-size:12px}
+.hc .hh{display:flex;align-items:center;gap:7px;font-weight:600;margin-bottom:6px}
+.hc .hh span{margin-left:auto;color:var(--muted);font-weight:400;font-size:10.5px}
+.hc .stack{display:flex;height:5px;border-radius:3px;overflow:hidden;gap:1px;margin:2px 0 8px}
+.hc table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.hc td{padding:5px 0;border-top:1px solid var(--line);vertical-align:top}
+.hc td:last-child{text-align:right;font-family:var(--mono)}
+.hc .mn{font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;gap:6px}
+.hc .mn i{width:7px;height:7px;border-radius:2px;flex:none}
+.empty{color:var(--muted);font-size:12px;padding:10px 4px;text-align:center}
+</style>
+
+<div class="wrap">
+  <main>
+    <div>
+      <h1>Track, round 3</h1>
+      <p class="sub">Only the tools you actually use get a spot. A tool used little last week and last month is left out of the tray icon. A tool with no usage at all is also left out of the popover. Set each tool's usage on the right to see what happens. Hover or tab to a tool in the popover to see its models. <span class="tag">example data</span></p>
+    </div>
+    <div class="stage" id="stage">
+      <div class="hc" id="hc" role="tooltip" hidden></div>
+      <div class="pop" id="pop" role="dialog" aria-label="Track usage popover">
+        <div class="phead"><b>Track</b><span>Updated 4s ago</span></div>
+        <div class="live" id="live"></div>
+        <div class="seg" id="seg" role="group" aria-label="Period"></div>
+        <div id="body"></div>
+        <div class="foot"><span>Week resets Mon 00:00 · every 30 s</span><span>Refresh</span></div>
+      </div>
+      <div class="taskbar">
+        <button class="trayicon" id="trayBtn" aria-expanded="true" aria-controls="pop"><span id="trayArt" style="display:grid"></span></button>
+        <span class="clock">17:42<br>18-11-2026</span>
+      </div>
+    </div>
+    <section class="lab" aria-label="Why each tool shows">
+      <h2>What each tool gets</h2>
+      <ul class="why" id="why"></ul>
+      <h2>Tray icon right now</h2>
+      <div class="big" id="big"></div>
+    </section>
+  </main>
+
+  <aside class="panel" aria-label="Decisions">
+    <h2>Round 3 choices</h2>
+    <div class="fixed">Already decided: <b>tokens first</b>, <b>logo dots</b>, <b>grey when idle</b>, <b>price · in · out · cache</b>, <b>logos in rows</b>.</div>
+    <div class="q"><span class="h">Usage limits for the tray icon</span><p>Counted in all tokens, like the big number.</p>
+      <div class="num">
+        <label for="wl">Week <input type="number" id="wl" min="0" step="1" value="5">M</label>
+        <label for="ml">Month <input type="number" id="ml" min="0" step="1" value="10">M</label>
+      </div>
+    </div>
+    <div id="qs"></div>
+    <div class="q"><span class="h">Pretend usage</span><p>Set each tool's usage and whether it's running.</p>
+      <div id="sim" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+    <div class="q"><span class="h">Your choices</span><p>Copy and paste into chat.</p>
+      <pre class="out" id="out"></pre>
+      <button class="copy" type="button" id="copyBtn">Copy choices</button>
+    </div>
+  </aside>
+</div>
+
+<script>
+const Q=[
+ {k:"rule",h:"Leave out of the tray when",p:"",o:[["both","Below both limits"],["either","Below either limit"]]},
+ {k:"weekWin",h:"\"Last week\" means",p:"",o:[["lastfull","Last full week, Mon–Sun"],["rolling","Last 7 days"],["this","This week so far"]]},
+ {k:"monthWin",h:"\"Last month\" means",p:"",o:[["lastfull","Last full month"],["rolling","Last 30 days"],["this","This month so far"]]},
+ {k:"running",h:"Left out, but running now",p:"For the day you open a tool you rarely use.",o:[["show","Show it while running"],["hide","Keep it out"]]},
+ {k:"fit",h:"Tray icon with fewer tools",p:"",o:[["adapt","1 big mark, 2 side by side"],["keep","Keep triangle, leave gaps"]]},
+ {k:"empty",h:"Remove from popover after no usage for",p:"",o:[["month","This month"],["30d","30 days"],["90d","90 days"]]},
+ {k:"hcDetail",h:"Model breakdown on hover shows",p:"For the selected Today / Week / Month tab.",o:[["full","Tokens, price, in/out/cache"],["short","Tokens and price"]]},
+];
+/* example model split per tool: [model, token share, cost share] */
+const MODELS={claude:[["claude-opus-5-5",.74,.9],["claude-sonnet-5-5",.21,.09],["claude-haiku-5-5",.05,.01]],
+ codex:[["gpt-5.6-luna",.83,.92],["gpt-5.6-luna-mini",.17,.08]],
+ copilot:[["gpt-6.1-sol",.58,.66],["claude-sonnet-5-5",.34,.31],["gpt-5.6-luna",.08,.03]]};
+const S={wl:5,ml:10,rule:"both",weekWin:"lastfull",monthWin:"lastfull",running:"show",fit:"adapt",empty:"30d",hcDetail:"full",period:"today"};
+try{Object.assign(S,JSON.parse(localStorage.getItem("track-mock-v3")||"{}"))}catch(e){}
+const ORDER=["claude","codex","copilot"];
+const LEVELS={heavy:["Heavy",88.2,321],medium:["Medium",3.2,14.5],light:["Light",1.4,6.2],none:["None",0,0]};
+const BASE={ /* example numbers: in, out, cache write, cache read (millions), $ */
+ claude:{name:"Claude Code",model:"opus-5-5",today:{i:.31,o:.92,w:2.1,r:18.07,c:14.82},week:{i:1.3,o:3.8,w:8.6,r:74.5,c:61.3},month:{i:4.4,o:12.9,w:29.6,r:254.1,c:212.75}},
+ codex:{name:"Codex",model:"gpt-5.6-luna",today:{i:3.1,o:.42,w:0,r:1.38,c:3.1},week:{i:17.2,o:2.3,w:0,r:8.1,c:18.44},month:{i:52.6,o:7.1,w:0,r:24.4,c:57.02}},
+ copilot:{name:"Copilot",model:"gpt-6.1-sol",today:{i:1.9,o:.21,w:.6,r:.49,c:2.4},week:{i:7.9,o:.9,w:2.5,r:2.1,c:9.85},month:{i:24.6,o:2.8,w:7.9,r:6.5,c:31.6}}
+};
+const SIM={claude:{lvl:"heavy",run:true},codex:{lvl:"light",run:false},copilot:{lvl:"medium",run:false}};
+try{Object.assign(SIM,JSON.parse(localStorage.getItem("track-mock-v3-sim")||"{}"))}catch(e){}
+const $=id=>document.getElementById(id);
+const sum=d=>d.i+d.o+d.w+d.r;
+function data(k,per){const b=BASE[k][per],f=LEVELS[SIM[k].lvl][1]/sum(BASE[k].week);const o={};for(const x in b)o[x]=b[x]*f;return o}
+const wk=k=>LEVELS[SIM[k].lvl][1], mo=k=>LEVELS[SIM[k].lvl][2];
+function status(k){
+  const hasUse=SIM[k].lvl!=="none"; const run=SIM[k].run;
+  const lowW=wk(k)<S.wl, lowM=mo(k)<S.ml;
+  const below=S.rule==="both"?(lowW&&lowM):(lowW||lowM);
+  const inList=hasUse||run;
+  const inTray=inList&&(!below||(run&&S.running==="show"));
+  return {inList,inTray,below,lowW,lowM,run,hasUse};
+}
+function mark(k,color){
+  if(k==="claude"){let s="";for(let a=0;a<12;a++){const t=a*Math.PI/6+.13,L=a%3===0?7.2:a%2?5.4:6.3;s+=`<line x1="8" y1="8" x2="${(8+Math.cos(t)*L).toFixed(2)}" y2="${(8+Math.sin(t)*L).toFixed(2)}"/>`}
+    return `<g stroke="${color}" stroke-width="1.9" stroke-linecap="round">${s}</g>`;}
+  if(k==="codex")return `<rect x="1.2" y="2.2" width="13.6" height="11.6" rx="3.2" fill="${color}"/><path d="M4.4 6l2.4 2-2.4 2" fill="none" stroke="var(--bgmark,#fff)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.6 10.3h3" stroke="var(--bgmark,#fff)" stroke-width="1.6" stroke-linecap="round"/>`;
+  return `<path d="M3 6.2C3 3.6 5 2 8 2s5 1.6 5 4.2v1.3c1 .3 1.6 1.1 1.6 2.1v1.2c0 .9-.5 1.6-1.3 2C12 14.4 10.3 15 8 15s-4-.6-5.3-2.2c-.8-.4-1.3-1.1-1.3-2V9.6c0-1 .6-1.8 1.6-2.1z" fill="${color}"/><rect x="4.1" y="5" width="3.4" height="3" rx="1.3" fill="var(--bgmark,#fff)"/><rect x="8.5" y="5" width="3.4" height="3" rx="1.3" fill="var(--bgmark,#fff)"/><rect x="5.6" y="10.2" width="1.3" height="2.2" rx=".6" fill="var(--bgmark,#fff)"/><rect x="9.1" y="10.2" width="1.3" height="2.2" rx=".6" fill="var(--bgmark,#fff)"/>`;
+}
+const colorOf=k=>`var(--${k})`;
+function place(k,cx,cy,s,on){
+  const tr=`translate(${(cx-s/2).toFixed(2)} ${(cy-s/2).toFixed(2)}) scale(${(s/16).toFixed(3)})`;
+  return on?`<g transform="${tr}">${mark(k,colorOf(k))}</g>`:`<g transform="${tr}" opacity=".38" style="--bgmark:transparent">${mark(k,"currentColor")}</g>`;
+}
+const TRI={claude:[8,4.1,7.8],codex:[3.9,11.9,7.8],copilot:[12.1,11.9,7.8]};
+function trayIcon(size){
+  const shown=ORDER.filter(k=>status(k).inTray); let g;
+  if(!shown.length){g=[[2,9,5],[6.7,5,9],[11.4,2,12]].map(([x,y,h])=>`<rect x="${x}" y="${y}" width="2.6" height="${h}" rx="1" fill="currentColor" opacity=".55"/>`).join("");}
+  else if(S.fit==="adapt"){
+    const P={1:[[8,8,14.5]],2:[[4.2,8,8],[11.8,8,8]],3:[TRI.claude,TRI.codex,TRI.copilot]}[shown.length];
+    g=shown.map((k,i)=>place(k,P[i][0],P[i][1],P[i][2],SIM[k].run)).join("");
+  }else g=shown.map(k=>place(k,TRI[k][0],TRI[k][1],TRI[k][2],SIM[k].run)).join("");
+  return `<svg width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true">${g}</svg>`;
+}
+const tok=n=>n<=0?"0":n>=1?n.toFixed(1)+"M":Math.round(n*1000)+"k";
+const under=d=>`$${d.c.toFixed(2)} · in ${tok(d.i+d.w)} · out ${tok(d.o)} · cache ${tok(d.r)}`;
+const logo=(k,on)=>`<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">${mark(k,on?colorOf(k):"currentColor")}</svg>`;
+const winW={lastfull:"last week",rolling:"last 7 days",this:"this week"}, winM={lastfull:"last month",rolling:"last 30 days",this:"this month"};
+const emptyTxt={month:"this month","30d":"the last 30 days","90d":"the last 90 days"};
+
+function render(){
+  const list=ORDER.filter(k=>status(k).inList);
+  $("trayArt").innerHTML=trayIcon(18);
+  const runNames=list.filter(k=>SIM[k].run).map(k=>BASE[k].name);
+  $("trayBtn").title="Track · "+(runNames.length?runNames.join(", ")+" running":"nothing running");
+  $("live").innerHTML=list.length?list.map(k=>`<div class="liverow ${SIM[k].run?"":"idle"}" data-tool="${k}" tabindex="0">${logo(k,SIM[k].run)}${BASE[k].name}${SIM[k].run?' <span class="pill">running</span>':""}<span class="m">${SIM[k].run?"1 session · "+BASE[k].model:"idle"}</span></div>`).join(""):`<div class="empty">No usage yet</div>`;
+  $("live").hidden=!list.length;
+  $("seg").innerHTML=[["today","Today"],["week","Week"],["month","Month"]].map(([k,l])=>`<button type="button" data-p="${k}" aria-pressed="${S.period===k}">${l}</button>`).join("");
+  const per=S.period;
+  if(!list.length){$("body").innerHTML=`<div class="empty">No Claude Code, Codex or Copilot usage in ${emptyTxt[S.empty]}.</div>`;}
+  else{
+    const rows=list.map(k=>[k,data(k,per)]), max=Math.max(...rows.map(([,d])=>sum(d)))||1;
+    const tot=rows.reduce((a,[,d])=>{for(const f of "iowrc")a[f]+=d[f];return a},{i:0,o:0,w:0,r:0,c:0});
+    $("body").innerHTML=`<table class="u"><thead><tr><th>${{today:"Today",week:"This week",month:"This month"}[per]}</th><th>Tokens</th></tr></thead><tbody>`+
+      rows.map(([k,d])=>`<tr data-tool="${k}" tabindex="0"><td><span class="name">${logo(k,true)}${BASE[k].name}</span><div class="bar"><i style="width:${(sum(d)/max*100).toFixed(0)}%;background:${colorOf(k)}"></i></div></td><td><span class="tok">${tok(sum(d))}</span><span class="sm">${under(d)}</span></td></tr>`).join("")+
+      (rows.length>1?`<tr class="total"><td>Total</td><td><span class="tok">${tok(sum(tot))}</span><span class="sm">${under(tot)}</span></td></tr>`:"")+`</tbody></table>`;
+  }
+  $("why").innerHTML=ORDER.map(k=>{const s=status(k);
+    const nums=`${wk(k)}M ${winW[S.weekWin]}, ${mo(k)}M ${winM[S.monthWin]}`;
+    let tag,txt;
+    if(!s.inList){tag=`<span class="st gone">Hidden everywhere</span>`;txt=`No usage in ${emptyTxt[S.empty]}.`;}
+    else if(s.inTray&&s.below){tag=`<span class="st tray">Tray + popover</span>`;txt=`Below the limits (${nums}), but shown because it's running.`;}
+    else if(s.inTray){tag=`<span class="st tray">Tray + popover</span>`;txt=`${nums}. Above the ${S.rule==="both"?"week or month":"week and month"} limit.`;}
+    else{tag=`<span class="st list">Popover only</span>`;txt=`${nums}. Below ${S.rule==="both"?"both limits":(s.lowW&&s.lowM?"both limits":s.lowW?"the week limit":"the month limit")}${s.run?", running but kept out":""}.`;}
+    return `<li>${logo(k,s.inTray)}<span><b>${BASE[k].name}</b><br>${txt}</span>${tag}</li>`}).join("");
+  $("big").innerHTML=["lt","dk"].map(c=>`<figure><div class="${c}" style="padding:14px;border-radius:12px;display:flex;align-items:end;gap:14px">${trayIcon(96)}${[16,24,32].map(s=>trayIcon(s)).join("")}</div>${c==="lt"?"Light":"Dark"} taskbar · 96, 16, 24, 32 px</figure>`).join("");
+  $("qs").innerHTML=Q.map(q=>`<div class="q" role="radiogroup" aria-labelledby="h-${q.k}"><span class="h" id="h-${q.k}">${q.h}</span>${q.p?`<p>${q.p}</p>`:""}<div class="opts">${q.o.map(([v,l])=>`<label><input type="radio" id="${q.k}-${v}" name="${q.k}" value="${v}" ${S[q.k]===v?"checked":""}>${l}</label>`).join("")}</div></div>`).join("");
+  $("sim").innerHTML=ORDER.map(k=>`<div class="simrow"><span class="nm">${logo(k,true)}${BASE[k].name.replace(" Code","")}</span><select id="lvl-${k}" data-lvl="${k}" aria-label="${BASE[k].name} usage">${Object.entries(LEVELS).map(([v,[l,w,m]])=>`<option value="${v}" ${SIM[k].lvl===v?"selected":""}>${l}${v==="none"?"":` (${w}M wk, ${m}M mo)`}</option>`).join("")}</select><label><input type="checkbox" id="run-${k}" data-run="${k}" ${SIM[k].run?"checked":""}>running</label></div>`).join("");
+  $("wl").value=S.wl; $("ml").value=S.ml;
+  hideHc();
+  const out={trayLimitWeekM:S.wl,trayLimitMonthM:S.ml,trayRule:S.rule,weekWindow:S.weekWin,monthWindow:S.monthWin,whenRunning:S.running,trayFit:S.fit,removeAfterNoUsage:S.empty,modelHover:S.hcDetail};
+  $("out").textContent=JSON.stringify(out,null,2);
+  try{localStorage.setItem("track-mock-v3",JSON.stringify(S));localStorage.setItem("track-mock-v3-sim",JSON.stringify(SIM))}catch(e){}
+}
+document.addEventListener("change",e=>{const t=e.target;
+  if(t.dataset.run){SIM[t.dataset.run].run=t.checked;render();$(t.id).focus();return;}
+  if(t.dataset.lvl){SIM[t.dataset.lvl].lvl=t.value;render();$(t.id).focus();return;}
+  if(t.id==="wl"||t.id==="ml"){const v=Math.max(0,parseFloat(t.value)||0);S[t.id]=v;render();$(t.id).focus();return;}
+  if(t.name in S){S[t.name]=t.value;render();$(t.id).focus();}});
+document.addEventListener("click",e=>{const b=e.target.closest("[data-p]");if(b){S.period=b.dataset.p;render();}});
+const SHADES=[1,.62,.36];
+function showHc(el){
+  const k=el.dataset.tool, per=S.period, d=data(k,per), tot=sum(d), hc=$("hc");
+  const perTxt={today:"Today",week:"This week",month:"This month"}[per];
+  const ms=MODELS[k];
+  hc.innerHTML=`<div class="hh">${logo(k,true)}${BASE[k].name}<span>${perTxt}</span></div>`+
+    (tot>0?`<div class="stack">${ms.map(([,s],i)=>`<i style="flex:${s};background:${colorOf(k)};opacity:${SHADES[i]}"></i>`).join("")}</div>`:"")+
+    `<table><tbody>${ms.map(([m,s,cs],i)=>{const md={i:d.i*s,o:d.o*s,w:d.w*s,r:d.r*s,c:d.c*cs};
+      return `<tr><td><span class="mn"><i style="background:${colorOf(k)};opacity:${SHADES[i]}"></i>${m}</span>${S.hcDetail==="full"?`<span class="sm">in ${tok(md.i+md.w)} · out ${tok(md.o)} · cache ${tok(md.r)}</span>`:""}</td><td>${tok(sum(md))}<span class="sm">$${md.c.toFixed(2)}</span></td></tr>`}).join("")}</tbody></table>`;
+  hc.hidden=false;
+  const sr=$("stage").getBoundingClientRect(), er=el.getBoundingClientRect(), pr=$("pop").getBoundingClientRect();
+  if(pr.left-sr.left>hc.offsetWidth+20){hc.style.left=(pr.left-sr.left-hc.offsetWidth-8)+"px";
+    hc.style.top=Math.max(8,Math.min(er.top-sr.top-8,sr.height-hc.offsetHeight-52))+"px";}
+  else{hc.style.left="12px";hc.style.top="12px";}
+}
+function hideHc(){const h=$("hc");if(h)h.hidden=true}
+document.addEventListener("mouseover",e=>{const r=e.target.closest("[data-tool]");if(r)showHc(r)});
+document.addEventListener("mouseout",e=>{const r=e.target.closest("[data-tool]");if(r&&!r.contains(e.relatedTarget))hideHc()});
+document.addEventListener("focusin",e=>{const r=e.target.closest("[data-tool]");r?showHc(r):hideHc()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")hideHc()});
+$("trayBtn").addEventListener("click",()=>{const p=$("pop");p.hidden=!p.hidden;$("trayBtn").setAttribute("aria-expanded",String(!p.hidden));});
+$("copyBtn").addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("out").textContent);$("copyBtn").textContent="Copied";}
+  catch(e){const r=document.createRange();r.selectNodeContents($("out"));const s=getSelection();s.removeAllRanges();s.addRange(r);$("copyBtn").textContent="Selected, press Ctrl+C";}
+  setTimeout(()=>$("copyBtn").textContent="Copy choices",2000);});
+render();
+</script>

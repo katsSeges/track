@@ -1,0 +1,253 @@
+<title>Track Tray Mockup</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: left = Windows desktop corner with the tray popover; right = decision panel. Stacks on phone. */
+:root{
+  --bg:#e9ebef; --desk1:#9fb4cc; --desk2:#6f86a3; --fg:#1d1d1f; --muted:#6e6e73; --line:rgba(0,0,0,.09);
+  --panel:#ffffff; --pop:rgba(246,246,248,.86); --popsolid:#f6f6f8; --row:rgba(0,0,0,.035);
+  --accent:#0a66d8; --ok:#28a745; --warn:#d98a00; --task:#e8ecf2; --taskfg:#333;
+  --claude:#c96442; --codex:#3a3a3c; --copilot:#7a4fd6;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",sans-serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.82); --popsolid:#28282c; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#d0d0d6; --copilot:#a98bff; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.82); --popsolid:#28282c; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#d0d0d6; --copilot:#a98bff; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:13px}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:28px}
+@media (max-width:900px){.wrap{grid-template-columns:1fr}}
+h1{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px;text-wrap:balance}
+.sub{color:var(--muted);margin:0 0 18px;max-width:62ch;line-height:1.5}
+.tag{display:inline-block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--warn);border:1px solid currentColor;border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+
+/* desktop stage */
+.stage{position:relative;border-radius:12px;overflow:hidden;min-height:620px;background:linear-gradient(160deg,var(--desk1),var(--desk2));display:flex;flex-direction:column;justify-content:flex-end;box-shadow:0 1px 0 var(--line)}
+.taskbar{height:44px;background:var(--task);color:var(--taskfg);display:flex;align-items:center;justify-content:flex-end;gap:14px;padding:0 14px;font-size:12px;border-top:1px solid var(--line)}
+.trayicon{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;cursor:pointer;position:relative;background:transparent;border:0;color:inherit;font:inherit}
+.trayicon:hover,.trayicon[aria-expanded="true"]{background:var(--row)}
+.trayicon:focus-visible{outline:2px solid var(--accent)}
+.trayicon .badge{position:absolute;right:1px;bottom:2px;width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 1.5px var(--task)}
+.traytext{font-family:var(--mono);font-size:11px}
+.clock{text-align:right;line-height:1.2}
+
+/* popover — modern */
+.pop{position:absolute;right:12px;bottom:54px;width:320px;max-width:calc(100% - 24px);background:var(--pop);backdrop-filter:blur(30px) saturate(1.6);-webkit-backdrop-filter:blur(30px) saturate(1.6);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.28),0 0 0 .5px rgba(0,0,0,.15);padding:10px;transition:opacity .15s, transform .15s}
+.pop[hidden]{display:none!important}
+.phead{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 8px}
+.phead b{font-size:13px}
+.phead span{color:var(--muted);font-size:11px}
+.live{display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:8px;background:var(--row);margin-bottom:8px}
+.liverow{display:flex;align-items:center;gap:8px;font-size:12px;padding:2px 2px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);opacity:.45;flex:none}
+.dot.on{background:var(--ok);opacity:1;box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 22%,transparent)}
+@media (prefers-reduced-motion:no-preference){.dot.on{animation:pulse 2s infinite}}
+@keyframes pulse{50%{box-shadow:0 0 0 5px color-mix(in srgb,var(--ok) 0%,transparent)}}
+.liverow .m{color:var(--muted);margin-left:auto;font-family:var(--mono);font-size:11px}
+.seg{display:flex;background:var(--row);border-radius:7px;padding:2px;margin:0 0 8px}
+.seg button{flex:1;border:0;background:transparent;color:var(--fg);font:500 11.5px var(--sans);padding:4px 0;border-radius:5px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--popsolid);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.seg button:focus-visible{outline:2px solid var(--accent)}
+table.u{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+table.u th{font-weight:500;color:var(--muted);font-size:10.5px;text-align:right;padding:2px 4px 4px;letter-spacing:.02em}
+table.u th:first-child{text-align:left}
+table.u td{padding:6px 4px;text-align:right;border-top:1px solid var(--line);font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+table.u td:first-child{text-align:left;font-family:var(--sans);font-size:12.5px;font-weight:500}
+.sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;vertical-align:0}
+.small{display:block;color:var(--muted);font-size:10px;font-family:var(--mono)}
+tr.total td{font-weight:600;color:var(--fg)}
+.bar{height:4px;border-radius:2px;background:var(--row);overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;border-radius:2px}
+.foot{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:10.5px;padding:8px 4px 0;border-top:1px solid var(--line);margin-top:6px}
+.foot button{border:0;background:none;color:var(--accent);font:500 11px var(--sans);cursor:pointer;padding:0}
+.cards{display:flex;flex-direction:column;gap:6px}
+.card{background:var(--row);border-radius:8px;padding:8px 10px}
+.card .t{display:flex;justify-content:space-between;font-weight:600;font-size:12.5px}
+.card .g{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px;font-variant-numeric:tabular-nums}
+.card .g div{font-family:var(--mono);font-size:12px}
+.card .g span{display:block;font-family:var(--sans);color:var(--muted);font-size:10px}
+
+/* popover — classic Platinum */
+.classic .pop{background:#dddddd;color:#000;border:1px solid #000;border-radius:0;box-shadow:2px 2px 0 rgba(0,0,0,.6);backdrop-filter:none;padding:0;font-family:Geneva,"Lucida Grande",var(--sans)}
+.classic .phead{background:repeating-linear-gradient(#fff 0 1px,#bbb 1px 2px);padding:3px 8px;border-bottom:1px solid #000;justify-content:center;position:relative}
+.classic .phead b{background:#dddddd;padding:0 8px;font-size:12px}
+.classic .phead span{display:none}
+.classic .pbody{padding:8px}
+.classic .live,.classic .card{background:#eee;border:1px solid #888;border-radius:0;box-shadow:inset 1px 1px 0 #fff}
+.classic .seg{background:#ccc;border:1px solid #666;border-radius:0}
+.classic .seg button{color:#000;border-radius:0}
+.classic .seg button[aria-pressed="true"]{background:#fff;box-shadow:inset 1px 1px 0 #888}
+.classic table.u td{border-top:1px dotted #888;color:#000}
+.classic table.u th,.classic .small,.classic .liverow .m,.classic .foot,.classic .card .g span{color:#444}
+.classic .foot{border-top:1px solid #888;padding:6px 8px;margin:0}
+.classic .foot button{color:#000;text-decoration:underline}
+.classic .dot.on{background:#1a8a1a;box-shadow:none;animation:none}
+.classic .bar{background:#bbb;border-radius:0}.classic .bar i{border-radius:0}
+
+/* decision panel */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px;align-self:start}
+.panel h2{font-size:14px;margin:0}
+.q{display:flex;flex-direction:column;gap:6px}
+.q label.h{font-weight:600;font-size:12px}
+.q p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.45}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opts label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px}
+.opts input{accent-color:var(--accent);margin:0}
+.opts label:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.opts label:has(input:focus-visible){outline:2px solid var(--accent)}
+.preview{display:flex;gap:8px;flex-wrap:wrap}
+.preview div{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;font-size:10.5px}
+.preview .lt{background:#eef1f5;color:#222}.preview .dk{background:#1c1f25;color:#e6e6e6}
+.preview .lt{--codex:#3a3a3c}.preview .dk{--codex:#d0d0d6}
+pre.out{background:var(--row);border-radius:8px;padding:10px;font:11px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word;margin:0;max-height:220px;overflow:auto}
+.copy{align-self:flex-start;border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:6px;padding:5px 12px;font:600 12px var(--sans);cursor:pointer}
+.copy:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.notes{font-size:12px;color:var(--muted);line-height:1.55;margin:0;padding-left:18px}
+.notes code{font-family:var(--mono);font-size:11px;color:var(--fg)}
+</style>
+
+<div class="wrap">
+  <section>
+    <h1>Track</h1>
+    <p class="sub">A tray app for Windows that shows which AI coding agents are running right now and how much Claude Code, Codex and Copilot you used today, this week and this month. Click the tray icon to open it, then change the options on the right. <span class="tag">example data</span></p>
+    <div class="stage" id="stage">
+      <div class="pop" id="pop" role="dialog" aria-label="Track usage popover">
+        <div class="phead"><b>Track</b><span id="updated">Updated 12s ago</span></div>
+        <div class="pbody">
+          <div class="live" id="live"></div>
+          <div class="seg" id="periodSeg" role="group" aria-label="Period"></div>
+          <div id="body"></div>
+          <div class="foot"><span id="resetTxt"></span><button type="button" id="refreshBtn">Refresh</button></div>
+        </div>
+      </div>
+      <div class="taskbar">
+        <span class="traytext" id="trayText"></span>
+        <button class="trayicon" id="trayBtn" aria-expanded="true" aria-controls="pop" title="Track">
+          <span id="iconArt" aria-hidden="true" style="display:grid"></span>
+        </button>
+        <span class="clock">17:42<br>18-11-2026</span>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel" aria-label="Decisions">
+    <h2>How should it work?</h2>
+    <div id="qs"></div>
+    <div class="q"><label class="h">Pretend these are running</label><p>Only for trying the icon. The real app detects it.</p>
+      <div class="opts">
+        <label><input type="checkbox" id="run-claude" data-run="claude">Claude Code</label>
+        <label><input type="checkbox" id="run-codex" data-run="codex">Codex</label>
+        <label><input type="checkbox" id="run-copilot" data-run="copilot">Copilot</label>
+      </div>
+      <div class="preview" id="iconPreview"></div>
+      <p id="tipText"></p>
+    </div>
+    <div class="q"><label class="h">Your choices</label><p>Copy these and paste them into chat. They become the spec in the plan.</p>
+      <pre class="out" id="out"></pre>
+      <button class="copy" type="button" id="copyBtn">Copy choices</button>
+    </div>
+    <ul class="notes">
+      <li>Claude: <code>~/.claude/projects/**/*.jsonl</code> (message usage)</li>
+      <li>Codex: <code>~/.codex/sessions/**/*.jsonl</code> (<code>token_count</code>)</li>
+      <li>Copilot CLI: <code>~/.copilot/session-state/*/events.jsonl</code> (<code>session.usage_record</code>, premium requests)</li>
+      <li>Running: agent processes plus Copilot <code>inuse.*.hold</code> files and logs written in the last 2 minutes</li>
+    </ul>
+  </aside>
+</div>
+
+<script>
+const Q=[
+ {k:"style",h:"Look",p:"Modern macOS popover, or classic Platinum (Mac OS 8/9).",o:[["modern","Modern macOS"],["classic","Classic Platinum"]]},
+ {k:"layout",h:"Layout",p:"One table with a period switch, or one card per tool showing all three periods.",o:[["table","Table + period tabs"],["cards","Cards, all periods"]]},
+ {k:"metric",h:"Show usage as",p:"Cost is estimated from public API prices. Subscriptions are not billed per token, so $ is an \"API-equivalent\" figure.",o:[["cost","$ cost"],["tokens","Tokens"],["both","Both"]]},
+ {k:"copilot",h:"Copilot unit",p:"Copilot bills by premium requests and resets on the 1st of the month.",o:[["requests","Premium requests"],["tokens","Tokens like the others"]]},
+ {k:"week",h:"Week starts",p:"When \"This week\" resets.",o:[["mon","Monday 00:00"],["rolling","Rolling 7 days"]]},
+ {k:"refresh",h:"Refresh every",p:"Reading local logs is cheap. Running status is checked every 5 s regardless.",o:[["30s","30 s"],["1m","1 min"],["5m","5 min"]]},
+ {k:"tray",h:"Tray icon",p:"Shows which agents are running without opening it. Each tool keeps its own color. Hover the icon for a tooltip.",o:[["bars","Bars, one per tool"],["dots","Three dots"],["tile","Color tile + count"],["none","Plain, no status"]]},
+ {k:"startup",h:"Start with Windows",p:"",o:[["yes","Yes"],["no","No"]]},
+];
+const S={style:"modern",layout:"table",metric:"cost",copilot:"requests",week:"mon",refresh:"30s",tray:"bars",startup:"yes",period:"today",style:"modern",metric:"both",copilot:"tokens"};
+if(!["bars","dots","tile","none"].includes(S.tray))S.tray="bars";
+try{Object.assign(S,JSON.parse(localStorage.getItem("track-mock")||"{}"))}catch(e){}
+
+const D={ /* example numbers only */
+ claude:{name:"Claude Code",color:"var(--claude)",run:true,detail:"2 sessions · opus-5-5",
+   today:{cost:14.82,tok:21.4e6},week:{cost:61.30,tok:88.2e6},month:{cost:212.75,tok:301e6}},
+ codex:{name:"Codex",color:"var(--codex)",run:false,detail:"idle · last 41 min ago",
+   today:{cost:3.10,tok:4.9e6},week:{cost:18.44,tok:27.6e6},month:{cost:57.02,tok:84.1e6}},
+ copilot:{name:"Copilot",color:"var(--copilot)",run:true,detail:"1 session · gpt-6.1-sol",
+   today:{cost:2.40,tok:3.2e6,req:12},week:{cost:9.85,tok:13.4e6,req:47},month:{cost:31.60,tok:41.8e6,req:183,quota:300}}
+};
+const P=[["today","Today"],["week","Week"],["month","Month"]];
+const $=id=>document.getElementById(id);
+const fmtTok=n=>n>=1e6?(n/1e6).toFixed(1)+"M":(n/1e3).toFixed(0)+"k";
+const fmt$=n=>"$"+n.toFixed(2);
+function val(key,per){const d=D[key][per];
+  if(key==="copilot"&&S.copilot==="requests"){const r=d.req+" req";return S.metric==="both"?[r,fmtTok(d.tok)]:[r];}
+  if(S.metric==="cost")return[fmt$(d.cost)]; if(S.metric==="tokens")return[fmtTok(d.tok)]; return[fmt$(d.cost),fmtTok(d.tok)];}
+const ORDER=["claude","codex","copilot"];
+function iconSvg(size,uid){
+  const run=ORDER.filter(k=>D[k].run); let g="";
+  const fill=k=>D[k].run?`style="fill:${D[k].color}"`:`fill="currentColor" opacity=".32"`;
+  if(S.tray==="none"){
+    g=[[2,9,5],[6.7,5,9],[11.4,2,12]].map(([x,y,h])=>`<rect x="${x}" y="${y}" width="2.6" height="${h}" rx="1" fill="currentColor"/>`).join("");
+  }else if(S.tray==="bars"){
+    g=ORDER.map((k,i)=>{const h=[6,10,13][i];return `<rect x="${1.6+i*4.6}" y="${14.5-h}" width="3.4" height="${h}" rx="1.2" ${fill(k)}/>`}).join("");
+  }else if(S.tray==="dots"){
+    g=ORDER.map((k,i)=>{const x=[8,3.6,12.4][i],y=[3.8,11.6,11.6][i];return D[k].run?`<circle cx="${x}" cy="${y}" r="3.2" style="fill:${D[k].color}"/>`:`<circle cx="${x}" cy="${y}" r="2.6" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".5"/>`}).join("");
+  }else{
+    if(!run.length){g=`<rect x="1.5" y="1.5" width="13" height="13" rx="3.5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".5"/>`;}
+    else{const w=13/run.length;
+      g=`<clipPath id="c${uid}"><rect x="1.5" y="1.5" width="13" height="13" rx="3.5"/></clipPath><g clip-path="url(#c${uid})">`+run.map((k,i)=>`<rect x="${1.5+i*w}" y="1.5" width="${w+.05}" height="13" style="fill:${D[k].color}"/>`).join("")+`</g>`+
+        (run.length>1?`<text x="8" y="11.4" text-anchor="middle" font-size="9" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#fff">${run.length}</text>`:"");}
+  }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 16 16">${g}</svg>`;
+}
+function cell(v){return v[0]+(v[1]?`<span class="small">${v[1]}</span>`:"")}
+
+function render(){
+  document.getElementById("stage").classList.toggle("classic",S.style==="classic");
+  $("live").innerHTML=Object.values(D).map(d=>`<div class="liverow"><span class="dot ${d.run?"on":""}"></span>${d.name}<span class="m">${d.detail}</span></div>`).join("");
+  $("iconArt").innerHTML=iconSvg(16,"t");
+  const runNames=ORDER.filter(k=>D[k].run).map(k=>D[k].name);
+  const tip="Track · "+(runNames.length?runNames.join(", ")+" running":"nothing running");
+  $("trayBtn").title=tip; $("tipText").textContent="Tooltip: "+tip;
+  $("iconPreview").innerHTML=["lt","dk"].map(c=>`<div class="${c}">${[16,24,32].map((s,i)=>iconSvg(s,c+i)).join("")}<span>${c==="lt"?"Light":"Dark"} taskbar<br>16 · 24 · 32 px</span></div>`).join("");
+  ORDER.forEach(k=>{$("run-"+k).checked=D[k].run});
+  $("periodSeg").hidden=S.layout!=="table";
+  $("periodSeg").innerHTML=P.map(([k,l])=>`<button type="button" data-p="${k}" aria-pressed="${S.period===k}">${l}</button>`).join("");
+  if(S.layout==="table"){
+    const per=S.period, keys=Object.keys(D);
+    const max=Math.max(...keys.map(k=>D[k][per].cost));
+    let rows=keys.map(k=>`<tr><td><span class="sw" style="background:${D[k].color}"></span>${D[k].name}<div class="bar"><i style="width:${(D[k][per].cost/max*100).toFixed(0)}%;background:${D[k].color}"></i></div></td><td>${cell(val(k,per))}</td></tr>`).join("");
+    const tc=keys.reduce((a,k)=>a+D[k][per].cost,0), tt=keys.reduce((a,k)=>a+D[k][per].tok,0);
+    const tv=S.metric==="tokens"?[fmtTok(tt)]:S.metric==="cost"?[fmt$(tc)]:[fmt$(tc),fmtTok(tt)];
+    const lbl={today:"Today",week:S.week==="mon"?"This week":"Last 7 days",month:"This month"}[per];
+    $("body").innerHTML=`<table class="u"><thead><tr><th>${lbl}</th><th>${S.metric==="tokens"?"Tokens":S.metric==="cost"?"Est. cost":"Cost / tokens"}</th></tr></thead><tbody>${rows}<tr class="total"><td>Total${S.copilot==="requests"&&S.metric!=="tokens"?' <span class="small">excl. Copilot</span>':""}</td><td>${cell(S.copilot==="requests"?(S.metric==="tokens"?[fmtTok(tt)]:[fmt$(tc-D.copilot[per].cost)].concat(S.metric==="both"?[fmtTok(tt)]:[])):tv)}</td></tr></tbody></table>`;
+  }else{
+    $("body").innerHTML=`<div class="cards">${Object.keys(D).map(k=>{const d=D[k];
+      const quota=k==="copilot"&&S.copilot==="requests"?`<div class="bar" title="${d.month.req} of ${d.month.quota} premium requests"><i style="width:${d.month.req/d.month.quota*100}%;background:${d.color}"></i></div>`:"";
+      return `<div class="card"><div class="t"><span><span class="sw" style="background:${d.color}"></span>${d.name}</span></div><div class="g">${P.map(([p,l])=>`<div><span>${p==="week"&&S.week==="rolling"?"7 days":l}</span>${cell(val(k,p))}</div>`).join("")}</div>${quota}</div>`}).join("")}</div>`;
+  }
+  $("resetTxt").textContent=(S.week==="mon"?"Week resets Mon 00:00":"Rolling 7 days")+" · every "+S.refresh;
+  $("qs").innerHTML=Q.map(q=>`<div class="q" role="radiogroup" aria-labelledby="h-${q.k}"><label class="h" id="h-${q.k}">${q.h}</label>${q.p?`<p>${q.p}</p>`:""}<div class="opts">${q.o.map(([v,l])=>`<label><input type="radio" id="${q.k}-${v}" name="${q.k}" value="${v}" ${S[q.k]===v?"checked":""}>${l}</label>`).join("")}</div></div>`).join("");
+  const out={...S}; delete out.period; $("out").textContent=JSON.stringify(out,null,2);
+  try{localStorage.setItem("track-mock",JSON.stringify(S))}catch(e){}
+}
+document.addEventListener("change",e=>{const rk=e.target.dataset&&e.target.dataset.run;if(rk){D[rk].run=e.target.checked;D[rk].detail=e.target.checked?(rk==="codex"?"1 session · gpt-5.6-luna":D[rk].detail.replace(/^idle.*/,"1 session")):"idle";render();$("run-"+rk).focus();return;}if(e.target.name&&e.target.name in S){S[e.target.name]=e.target.value;render();document.getElementById(e.target.id)?.focus();}});
+document.addEventListener("click",e=>{const b=e.target.closest("[data-p]");if(b){S.period=b.dataset.p;render();}});
+$("trayBtn").addEventListener("click",()=>{const p=$("pop");p.hidden=!p.hidden;$("trayBtn").setAttribute("aria-expanded",String(!p.hidden));});
+$("refreshBtn").addEventListener("click",()=>{$("updated").textContent="Updated just now";});
+$("copyBtn").addEventListener("click",async()=>{const t=$("out").textContent;
+  try{await navigator.clipboard.writeText(t);$("copyBtn").textContent="Copied";}
+  catch(e){const r=document.createRange();r.selectNodeContents($("out"));const s=getSelection();s.removeAllRanges();s.addRange(r);$("copyBtn").textContent="Selected, press Ctrl+C";}
+  setTimeout(()=>$("copyBtn").textContent="Copy choices",2000);});
+render();
+</script>
