@@ -106,6 +106,26 @@ public class ActivityParsersTests
     }
 
     [Fact]
+    public void Copilot_steering_and_the_same_interaction_continue_the_task_instead_of_restarting_its_timer()
+    {
+        var p = new CopilotActivityParser("folder");
+        string Message(string? delivery, string? interaction) =>
+            "{\"type\":\"user.message\"," + T + ",\"data\":{" +
+            string.Join(",", new[] { delivery is null ? null : $"\"delivery\":\"{delivery}\"", interaction is null ? null : $"\"interactionId\":\"{interaction}\"" }.OfType<string>()) + "}}";
+
+        Assert.Equal([ActivityKind.TurnStart], Kinds(p, Message("idle", "i1")));           // a new task
+        Assert.Equal([ActivityKind.StepStart], Kinds(p, Message("steering", "i1")));       // typed while it works
+        Assert.Equal([ActivityKind.StepStart], Kinds(p, Message("steering", "i2")));       // steering always continues
+        Assert.Equal([ActivityKind.StepStart], Kinds(p, Message("queued", "i2")));         // same interaction
+        Assert.Equal([ActivityKind.TurnStart], Kinds(p, Message(null, null)));             // no fields (older Copilot): a new task
+        Assert.Equal([ActivityKind.TurnStart], Kinds(p, Message("queued", "i3")));         // a new interaction is a new task
+        Assert.Equal([ActivityKind.StepStart], Kinds(p, Message("steering", null)));       // steering without an id still continues
+        Assert.Equal([ActivityKind.StepStart], Kinds(p, Message("idle", "i3")));           // …and i3 is still the current interaction
+        Assert.Equal([ActivityKind.TurnEnd], Kinds(p, "{\"type\":\"session.task_complete\"," + T + "}"));
+        Assert.Equal([ActivityKind.TurnStart], Kinds(p, Message("idle", "i3")));           // after completion, even i3 is a new task
+    }
+
+    [Fact]
     public void Copilot_reports_the_model_from_usage_records()
     {
         var p = new CopilotActivityParser("folder");
@@ -122,5 +142,25 @@ public class ActivityParsersTests
         Assert.IsType<CodexActivityParser>(ActivityParsers.Create(Tool.Codex, "s"));
         Assert.IsType<CopilotActivityParser>(ActivityParsers.Create(Tool.Copilot, "s"));
         Assert.Throws<ArgumentOutOfRangeException>(() => ActivityParsers.Create((Tool)9, "s"));
+    }
+
+    [Fact]
+    public void Copilot_sub_agent_prompts_are_steps_of_the_main_task_and_ask_user_waits_for_the_answer()
+    {
+        var p = new CopilotActivityParser("folder");
+        Assert.Equal([ActivityKind.TurnStart], Kinds(p, "{\"type\":\"user.message\"," + T + ",\"data\":{\"delivery\":\"idle\",\"interactionId\":\"main\"}}"));
+
+        // The main agent prompts a sub-agent: same log, top-level agentId, its own new interaction.
+        Assert.Equal([ActivityKind.StepStart], Kinds(p, "{\"type\":\"user.message\"," + T + ",\"agentId\":\"sub-1\",\"data\":{\"delivery\":\"idle\",\"interactionId\":\"sub\"}}"));
+        // …which does not replace the main interaction.
+        Assert.Equal([ActivityKind.StepStart], Kinds(p, "{\"type\":\"user.message\"," + T + ",\"data\":{\"delivery\":\"queued\",\"interactionId\":\"main\"}}"));
+
+        Assert.Equal([new ActivityEvent(Tool.Copilot, "folder", ActivityKind.WaitStart, At)],
+            p.Parse("{\"type\":\"tool.execution_start\"," + T + ",\"data\":{\"toolCallId\":\"c1\",\"toolName\":\"ask_user\"}}"));
+        Assert.Equal([ActivityKind.WaitEnd], Kinds(p, "{\"type\":\"human_response.recorded\"," + T + ",\"data\":{\"toolCallId\":\"c1\",\"actor\":\"human_response\"}}"));
+
+        // Other tools are neither: filtered out early, or parsed and ignored when "ask_user" appears elsewhere.
+        Assert.Empty(p.Parse("{\"type\":\"tool.execution_start\"," + T + ",\"data\":{\"toolName\":\"powershell\"}}"));
+        Assert.Empty(p.Parse("{\"type\":\"tool.execution_start\"," + T + ",\"data\":{\"toolName\":\"view\",\"arguments\":\"ask_user\"}}"));
     }
 }

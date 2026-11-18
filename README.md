@@ -49,7 +49,7 @@ network request is a once-a-day download of the public LiteLLM price list.
 - **Top island**: appears while an agent works (logo, waveform, timer since your last prompt, session
   tokens) and stays up as long as something runs. Click it for details; the **–** button there tucks it
   away while agents keep running (rest the mouse on the very top edge for 0.6 s to peek; click to open
-  it again). When work ends it says "done" for 5 seconds and hides after 5 idle minutes; the top edge
+  it again). When work ends it says "done" for 5 seconds (or "needs you" when Copilot stops to ask you something) and hides after 5 idle minutes; the top edge
   brings it back then too. Opened, it has two tabs: **Now** (the running agents) and **Usage** (the same
   Today / Week / Month chart, comparison and rows as the popover, in the island's dark look). The island
   remembers the tab you left it on.

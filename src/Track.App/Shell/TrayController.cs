@@ -384,6 +384,7 @@ public sealed class TrayController : IDisposable
     {
         IReadOnlyDictionary<Tool, LiveStatus> live;
         IReadOnlyList<AgentActivity> working;
+        IReadOnlySet<(Tool Tool, string SessionId)> waiting;
         lock (_gate)
         {
             var recent = _scanCache.Recent();
@@ -391,6 +392,7 @@ public sealed class TrayController : IDisposable
             var now = DateTimeOffset.UtcNow;
             var writes = _activity.Refresh(now, recent);
             working = _activity.Tracker.Working(now, writes, tool => live.TryGetValue(tool, out var s) && s.ProcessRunning);
+            waiting = _activity.Tracker.Waiting();
             // One answer for "who is working": the tray icon, the popover and the island all use these agents.
             live = LiveStatusDetector.WithAgents(live, working);
         }
@@ -404,7 +406,7 @@ public sealed class TrayController : IDisposable
                 _vm.LiveUpdated(live);
             }
 
-            _island.Update(working, fullScreen);
+            _island.Update(working, fullScreen, waiting);
             RenderIsland();
             UpdateTrayIcon();
             _liveReadOnce = true;

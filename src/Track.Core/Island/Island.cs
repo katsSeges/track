@@ -99,7 +99,8 @@ public enum IslandState
 }
 
 /// <summary>A task that just finished, shown as "Claude Code done" for <see cref="IslandStateMachine.DoneFor"/>.</summary>
-public sealed record FinishedTask(Tool Tool, TimeSpan Duration);
+/// <param name="NeedsYou">It stopped to ask the user something ("Copilot needs you"), rather than finishing.</param>
+public sealed record FinishedTask(Tool Tool, TimeSpan Duration, bool NeedsYou = false);
 
 /// <summary>
 /// When the island shows and in which form. Feed it the working agents (every few seconds), the pointer
@@ -168,14 +169,15 @@ public sealed class IslandStateMachine(TimeProvider time, Func<IslandSettings> s
     public bool IsMinimized => _minimized;
 
     /// <summary>New working agents and full-screen state (every live refresh).</summary>
-    public void Update(IReadOnlyList<AgentActivity> working, bool fullScreen)
+    /// <param name="waiting">Sessions that stopped to wait for the user's answer (shown as "needs you", not "done").</param>
+    public void Update(IReadOnlyList<AgentActivity> working, bool fullScreen, IReadOnlySet<(Tool Tool, string SessionId)>? waiting = null)
     {
         var now = time.GetUtcNow();
         var stillWorking = working.Select(w => (w.Tool, w.SessionId)).ToHashSet();
         var finished = _working.FirstOrDefault(w => !stillWorking.Contains((w.Tool, w.SessionId)));
         if (finished is not null && settings().ShowDone)
         {
-            Finished = new FinishedTask(finished.Tool, now - finished.TurnStartedUtc);
+            Finished = new FinishedTask(finished.Tool, now - finished.TurnStartedUtc, waiting?.Contains((finished.Tool, finished.SessionId)) == true);
             _doneUntil = now + DoneFor;
         }
 
@@ -285,7 +287,8 @@ public sealed record IslandContent(
     string? Footer,
     bool CanMinimize = false,
     IslandTab Tab = IslandTab.Now,
-    UsagePanelContent? Usage = null);
+    UsagePanelContent? Usage = null,
+    bool NeedsYou = false);
 
 /// <summary>Builds <see cref="IslandContent"/> from the state machine, usage and settings.</summary>
 /// <param name="listed">Tools the usage table lists (the popover's visibility rule), so both show the same rows; all tools when null.</param>
@@ -354,7 +357,14 @@ public sealed class IslandViewModel(
                 return Compact(empty, working, now, s);
             case IslandState.Done:
                 var done = machine.Finished!;
-                return empty with { MainTool = done.Tool, MainText = $"{ToolNames.Display(done.Tool)} done", MainExtra = Format.Timer(done.Duration), Logos = [done.Tool] };
+                return empty with
+                {
+                    MainTool = done.Tool,
+                    MainText = $"{ToolNames.Display(done.Tool)} {(done.NeedsYou ? "needs you" : "done")}",
+                    MainExtra = Format.Timer(done.Duration),
+                    Logos = [done.Tool],
+                    NeedsYou = done.NeedsYou,
+                };
             case IslandState.Idle:
             case IslandState.Revealed:
                 return empty with { MainText = "Idle", MainExtra = "today " + Format.Tokens(usage.Totals(null, periods.Range(Period.Today)).Tokens.Total) };

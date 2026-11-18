@@ -30,6 +30,7 @@ public sealed class IslandWindow : Window
     private static readonly Brush Rule = Frozen(Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF));
     private static readonly Brush Outline = Frozen(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
     private static readonly Brush Done = Frozen(Color.FromRgb(0x3C, 0xCF, 0x62));
+    private static readonly Brush Waiting = Frozen(Color.FromRgb(0xF5, 0xB7, 0x40));
     private static readonly FontFamily Mono = new("Cascadia Mono, Consolas");
     private static readonly FontFamily Sans = new("Segoe UI Variable Text, Segoe UI");
 
@@ -180,7 +181,7 @@ public sealed class IslandWindow : Window
 
     /// <summary>Everything that needs a rebuild: all content except the running timers.</summary>
     private static string ContentKey(IslandContent c) =>
-        $"{c.State}|{c.CanMinimize}|{c.MainTool}|{(c.State == IslandState.Active ? "" : c.MainText)}|{c.MainExtra}|{string.Join(",", c.Logos)}|{string.Join(",", c.Bubble)}|{c.Counter}|{c.Header}|{c.HeaderRight}|{c.Footer}|{c.Activity}|" +
+        $"{c.State}|{c.NeedsYou}|{c.CanMinimize}|{c.MainTool}|{(c.State == IslandState.Active ? "" : c.MainText)}|{c.MainExtra}|{string.Join(",", c.Logos)}|{string.Join(",", c.Bubble)}|{c.Counter}|{c.Header}|{c.HeaderRight}|{c.Footer}|{c.Activity}|" +
         string.Join(";", c.Rows.Select(r => $"{r.Tool}{r.Detail}")) + string.Join(";", c.Table) + $"|{c.Tab}|" + UsageKey(c.Usage);
 
     private static string UsageKey(UsagePanelContent? u) => u is null
@@ -287,7 +288,7 @@ public sealed class IslandWindow : Window
         if (c.State == IslandState.Done)
         {
             row.Children.Add(Text(c.MainText, White, margin: 9));
-            row.Children.Add(Text("✓", Done, margin: 6));
+            row.Children.Add(c.NeedsYou ? Text("?", Waiting, bold: true, margin: 6) : Text("✓", Done, margin: 6));
             row.Children.Add(Text(c.MainExtra, Dim, mono: true, margin: 6));
         }
         else if (c.State == IslandState.Active)

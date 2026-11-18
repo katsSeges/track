@@ -17,6 +17,12 @@ public enum ActivityKind
     /// <summary>A step ended; the task is over unless another step follows within a short grace period.</summary>
     StepEnd,
 
+    /// <summary>The agent asked the user something and waits for the answer (Copilot's <c>ask_user</c>): not working.</summary>
+    WaitStart,
+
+    /// <summary>The user answered: the agent works again and the task timer restarts, like after a prompt.</summary>
+    WaitEnd,
+
     /// <summary>The agent finished or was interrupted.</summary>
     TurnEnd,
 
@@ -188,10 +194,21 @@ public sealed class CodexActivityParser(string fallbackSessionId) : IActivityPar
 /// Copilot: <c>user.message</c> starts a task; <c>assistant.turn_start</c>/<c>turn_end</c> bracket each step
 /// (the task ends when no step follows shortly); <c>session.task_complete</c> ends it at once;
 /// <c>session.start</c>/<c>resume</c>/<c>shutdown</c> bound the session.
+/// <para>
+/// A message typed while Copilot works (<c>delivery: "steering"</c>) or one in the same <c>interactionId</c>
+/// continues the current task instead of starting a new one, so the task timer keeps counting like Copilot's own
+/// timer does (found 2026-11-19: 18 steering messages in one evening each restarted the island's timer).
+/// </para>
+/// <para>
+/// Sub-agents write into the same log with a top-level <c>agentId</c>: their prompts are steps of the main task.
+/// <c>ask_user</c> pauses the task until <c>human_response.recorded</c> (found 2026-11-19: a 5-hour wait for an
+/// answer counted as working, and 18 sub-agent prompts restarted the timer).
+/// </para>
 /// </summary>
 public sealed class CopilotActivityParser(string sessionId) : IActivityParser
 {
-    private static readonly string[] Markers = ["\"session.", "\"user.message\"", "\"assistant.turn_"];
+    private static readonly string[] Markers = ["\"session.", "\"user.message\"", "\"assistant.turn_", "\"human_response.recorded\"", "\"ask_user\""];
+    private string? _interaction;
 
     public IReadOnlyList<ActivityEvent> Parse(string line)
     {
@@ -211,12 +228,37 @@ public sealed class CopilotActivityParser(string sessionId) : IActivityParser
         {
             "session.start" or "session.resume" => [Event(ActivityKind.SessionStart)],
             "session.shutdown" => [Event(ActivityKind.SessionEnd)],
-            "user.message" => [Event(ActivityKind.TurnStart)],
+            "user.message" => [Event(Prompt(root))],
+            "tool.execution_start" when JsonLine.String(JsonLine.Get(root, "data", "toolName")) == "ask_user" => [Event(ActivityKind.WaitStart)],
+            "human_response.recorded" => [Event(ActivityKind.WaitEnd)],
             "assistant.turn_start" => [Event(ActivityKind.StepStart)],
             "assistant.turn_end" => [Event(ActivityKind.StepEnd)],
-            "session.task_complete" => [Event(ActivityKind.TurnEnd)],
+            "session.task_complete" => [Event(Complete())],
             "session.usage_record" when JsonLine.String(JsonLine.Get(root, "data", "usage", "model")) is { } model => [Event(ActivityKind.ModelSeen, model)],
             _ => [],
         };
+    }
+
+    /// <summary>A new task, or (steering / same interaction) a step of the running one.</summary>
+    private ActivityKind Prompt(System.Text.Json.JsonElement? root)
+    {
+        if (JsonLine.Get(root, "agentId") is not null)
+        {
+            return ActivityKind.StepStart; // the main agent prompting a sub-agent: same task, same timer
+        }
+
+        var interaction = JsonLine.String(JsonLine.Get(root, "data", "interactionId"));
+        var continues = JsonLine.String(JsonLine.Get(root, "data", "delivery")) == "steering"
+                        || (interaction is not null && interaction == _interaction);
+        // A new task takes its own interaction (none for older Copilot versions); a continuing message keeps the current one unless it names another.
+        _interaction = continues ? interaction ?? _interaction : interaction;
+        return continues ? ActivityKind.StepStart : ActivityKind.TurnStart;
+    }
+
+    /// <summary>The task is over: the next message starts a new one, whatever its interaction.</summary>
+    private ActivityKind Complete()
+    {
+        _interaction = null;
+        return ActivityKind.TurnEnd;
     }
 }

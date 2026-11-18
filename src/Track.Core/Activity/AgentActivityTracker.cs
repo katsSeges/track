@@ -50,9 +50,17 @@ public sealed class AgentActivityTracker
         switch (e.Kind)
         {
             case ActivityKind.TurnStart:
+            case ActivityKind.WaitEnd:
                 s.TurnStart = e.At;
                 s.Working = true;
+                s.Waiting = false;
                 s.PendingEnd = null;
+                break;
+            case ActivityKind.WaitStart:
+                s.Working = false;
+                s.Waiting = true;
+                s.PendingEnd = null;
+                s.LastEnd = e.At;
                 break;
             case ActivityKind.StepStart:
                 s.TurnStart = s.Working ? s.TurnStart : e.At;
@@ -65,6 +73,7 @@ public sealed class AgentActivityTracker
             case ActivityKind.TurnEnd:
             case ActivityKind.SessionEnd:
                 s.Working = false;
+                s.Waiting = false;
                 s.PendingEnd = null;
                 s.LastEnd = e.At;
                 break;
@@ -106,6 +115,10 @@ public sealed class AgentActivityTracker
         return silent < StaleAfter || (silent < DeadAfter && processAlive(tool));
     }
 
+    /// <summary>Sessions waiting for the user's answer (Copilot's <c>ask_user</c>); they are not working.</summary>
+    public IReadOnlySet<(Tool Tool, string SessionId)> Waiting() =>
+        _sessions.Where(p => p.Value.Waiting).Select(p => p.Key).ToHashSet();
+
     /// <summary>
     /// The tray's rule: the log was written within the active window, and not just as the tail of an ended turn.
     /// Only real log writes count (no write seen → no).
@@ -113,7 +126,7 @@ public sealed class AgentActivityTracker
     private static bool StillWritten(Session s, DateTimeOffset now, DateTimeOffset? lastWrite)
     {
         var end = s.Working ? s.PendingEnd : s.LastEnd;
-        return lastWrite is { } w && now - w <= LiveStatusDetector.ActiveWindow && (end is not { } e || w - e > EndSettle);
+        return !s.Waiting && lastWrite is { } w && now - w <= LiveStatusDetector.ActiveWindow && (end is not { } e || w - e > EndSettle);
     }
 
     private sealed class Session
@@ -129,6 +142,8 @@ public sealed class AgentActivityTracker
         public DateTimeOffset? LastEnd { get; set; }
 
         public bool Working { get; set; }
+
+        public bool Waiting { get; set; }
 
         public string? Model { get; set; }
     }

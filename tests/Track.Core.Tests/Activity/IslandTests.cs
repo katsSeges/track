@@ -407,4 +407,23 @@ public class IslandTests
         Assert.Equal(new IslandTableRow(Tool.Copilot, "Copilot", "0", "3.0M", "3.0M"), content.Table[2]);
         Assert.Null(content.Footer);
     }
+
+    [Fact]
+    public void An_agent_that_stops_to_ask_you_something_needs_you_instead_of_being_done()
+    {
+        var vm = ViewModel();
+        _island.Update([Agent(Tool.Copilot, "p", turnMinutesAgo: 2)], false);
+        Advance(5);
+        _island.Update([], false, new HashSet<(Tool, string)> { (Tool.Copilot, "p") });
+
+        Assert.Equal(new FinishedTask(Tool.Copilot, TimeSpan.FromSeconds(125), NeedsYou: true), _island.Finished);
+        var content = vm.Build();
+        Assert.Equal(("Copilot needs you", "2:05", true), (content.MainText, content.MainExtra, content.NeedsYou));
+
+        // A different session waiting does not make this one "need you".
+        Advance(10);
+        _island.Update([Agent(Tool.Copilot, "p", turnMinutesAgo: 2)], false);
+        _island.Update([], false, new HashSet<(Tool, string)> { (Tool.Copilot, "other") });
+        Assert.Equal(("Copilot done", false), (vm.Build().MainText, vm.Build().NeedsYou));
+    }
 }

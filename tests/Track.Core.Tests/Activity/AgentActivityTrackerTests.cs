@@ -238,4 +238,26 @@ public class AgentActivityTrackerTests
         Assert.Empty(WorkingAt(TimeSpan.FromMinutes(2), writes: new() { [(Tool.Copilot, "p")] = T0.AddMinutes(1).AddSeconds(5) }));
         Assert.Equal(T0, Assert.Single(WorkingAt(TimeSpan.FromMinutes(2), writes: new() { [(Tool.Copilot, "p")] = T0.AddMinutes(1).AddSeconds(30) })).TurnStartedUtc);
     }
+
+    [Fact]
+    public void Waiting_for_the_users_answer_is_not_working_and_the_answer_restarts_the_timer()
+    {
+        Apply(ActivityKind.TurnStart, TimeSpan.Zero, Tool.Copilot, "p");
+        Apply(ActivityKind.WaitStart, TimeSpan.FromMinutes(1), Tool.Copilot, "p");
+        var writes = new Dictionary<(Tool, string), DateTimeOffset> { [(Tool.Copilot, "p")] = T0.AddMinutes(3) };
+
+        // Waiting: not working (even though the log was written), and listed as waiting.
+        Assert.Empty(WorkingAt(TimeSpan.FromMinutes(3.5), writes: writes));
+        Assert.Equal([(Tool.Copilot, "p")], _tracker.Waiting());
+
+        // Five hours later the user answers: working again, the task timer starts at the answer.
+        Apply(ActivityKind.WaitEnd, TimeSpan.FromHours(5), Tool.Copilot, "p");
+        Assert.Equal(T0.AddHours(5), Assert.Single(WorkingAt(TimeSpan.FromHours(5) + TimeSpan.FromMinutes(1))).TurnStartedUtc);
+        Assert.Empty(_tracker.Waiting());
+
+        // Waiting ends with the task too.
+        Apply(ActivityKind.WaitStart, TimeSpan.FromHours(6), Tool.Copilot, "p");
+        Apply(ActivityKind.TurnEnd, TimeSpan.FromHours(7), Tool.Copilot, "p");
+        Assert.Empty(_tracker.Waiting());
+    }
 }
