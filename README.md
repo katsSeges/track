@@ -1,11 +1,36 @@
-# Track
+<h1 align="center">Track</h1>
+
+<p align="center">
+  <b>See what Claude Code, Codex and GitHub Copilot are doing — and what they cost — right from your Windows tray.</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/katsSeges/track/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/katsSeges/track?label=download&color=E08560"></a>
+  <a href="https://github.com/katsSeges/track/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/katsSeges/track/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-4C9BFF">
+  <img alt="Coverage 100%" src="https://img.shields.io/badge/core%20coverage-100%25-3CCF62">
+</p>
+
+<p align="center">
+  <img src="docs/images/hero.png" alt="Track's tray popover in light and dark, and the top island's Usage tab, with per-hour and per-day usage charts" width="100%">
+</p>
 
 A small Windows tray app that shows whether Claude Code, Codex or GitHub Copilot is working right now,
-and how many tokens (with an estimated price) each used today, this week and this month. An optional
-black "island" at the top of the screen shows the running agent and a live timer.
+and how many tokens (with an estimated price) each used today, this week and this month, with charts
+per hour and per day. An optional black "island" at the top of the screen shows the running agent and a
+live timer, and opens into the same usage view.
+
+<p align="center">
+  <img src="docs/images/island.png" alt="The top island: an agent working, a second one joining, opened with the running agents, the Usage tab per day, week and month, then done and idle" width="460">
+</p>
 
 Everything is read from the agents' own log files on your machine. Nothing is sent anywhere; the only
 network request is a once-a-day download of the public LiteLLM price list.
+
+**[Download the latest release](https://github.com/katsSeges/track/releases/latest)** — unzip, run
+`scripts\install.ps1`, done. No .NET install needed.
+
+<sub>Screenshots use made-up demo data.</sub>
 
 ## What you see
 
