@@ -56,6 +56,10 @@ public partial class PopoverWindow : Window
 
     public event Action? AnalyticsRequested;
 
+    public event Action<Tool>? ChatLaunchRequested;
+
+    public Func<Tool, string?>? ChatTooltipRequested { get; set; }
+
     /// <summary>Raised when the pointer or focus leaves a row, or the popover hides.</summary>
     public event Action? RowLeft;
 
@@ -95,8 +99,31 @@ public partial class PopoverWindow : Window
     private void Row_MouseEnter(object sender, MouseEventArgs e)
     {
         _pendingRow = (FrameworkElement)sender;
+        if (_pendingRow.Tag is Tool tool)
+        {
+            _pendingRow.ToolTip = ChatTooltipRequested?.Invoke(tool);
+        }
+
         _hoverDelay.Stop();
         _hoverDelay.Start();
+    }
+
+    private void Row_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: Tool tool } row)
+        {
+            ChatLaunchRequested?.Invoke(tool);
+            e.Handled = true;
+        }
+    }
+
+    private void Row_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && sender is FrameworkElement { Tag: Tool tool } row)
+        {
+            ChatLaunchRequested?.Invoke(tool);
+            e.Handled = true;
+        }
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e)
@@ -122,6 +149,7 @@ public partial class PopoverWindow : Window
     {
         if (sender is FrameworkElement { Tag: Tool tool } row)
         {
+            row.ToolTip = ChatTooltipRequested?.Invoke(tool);
             RowHovered?.Invoke(tool, row);
         }
     }

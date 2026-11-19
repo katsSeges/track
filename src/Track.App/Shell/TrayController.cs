@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using H.NotifyIcon;
+using H.NotifyIcon.Core;
 using Microsoft.Win32;
 using Track.App.Live;
 using Track.Core;
@@ -40,12 +41,14 @@ public sealed record AppOptions(
     string? RenderPopoverTo = null,
     string? RenderIslandTo = null,
     string? PointerFile = null,
-    string? RenderAnalyticsTo = null)
+    string? RenderAnalyticsTo = null,
+    string? RenderSettingsTo = null)
 {
     /// <summary>
     /// Reads <c>TRACK_HOME</c> / <c>TRACK_DATA</c> / <c>TRACK_DIAG</c> / <c>TRACK_POINTER_FILE</c> and the flags <c>--open</c>,
     /// <c>--card claude|codex|copilot</c>, <c>--theme light|dark</c>, <c>--render-icons &lt;dir&gt;</c>,
-    /// <c>--render-popover &lt;dir&gt;</c>, <c>--render-island &lt;dir&gt;</c>, <c>--render-analytics &lt;dir&gt;</c>, <c>--no-startup</c>.
+    /// <c>--render-popover &lt;dir&gt;</c>, <c>--render-island &lt;dir&gt;</c>, <c>--render-analytics &lt;dir&gt;</c>,
+    /// <c>--render-settings &lt;dir&gt;</c>, <c>--no-startup</c>.
     /// </summary>
     [ExcludeFromCodeCoverage(Justification = "Startup plumbing.")]
     public static AppOptions From(string[] args)
@@ -61,12 +64,13 @@ public sealed record AppOptions(
             Logos.FromKey(Value("--card")),
             Value("--theme") switch { "dark" => true, "light" => false, _ => null },
             Value("--render-icons"),
-            !args.Contains("--no-startup") && Value("--render-popover") is null && Value("--render-island") is null && Value("--render-analytics") is null,
+            !args.Contains("--no-startup") && Value("--render-popover") is null && Value("--render-island") is null && Value("--render-analytics") is null && Value("--render-settings") is null,
             Environment.GetEnvironmentVariable("TRACK_DIAG") == "1",
             Value("--render-popover"),
             Value("--render-island"),
             Environment.GetEnvironmentVariable("TRACK_POINTER_FILE"),
-            Value("--render-analytics"));
+            Value("--render-analytics"),
+            Value("--render-settings"));
     }
 }
 
@@ -82,10 +86,16 @@ public sealed class TrayController : IDisposable
     private readonly Dispatcher _ui;
     private readonly IFileSystem _fs = new FileSystem();
     private readonly SettingsStore _settingsStore;
+    private readonly AlertStateStore _alertStateStore;
     private readonly UsageIngestor _ingestor;
     private readonly UsageAggregator _usage;
     private readonly PeriodCalculator _periods;
     private readonly AnalyticsBuilder _analyticsBuilder;
+    private readonly AlertEvaluator _alertEvaluator = new();
+    private readonly NotificationPolicy _notificationPolicy = new();
+    private HashSet<string> _firedBudgetAlerts = new(StringComparer.Ordinal);
+    private bool _alertStateAvailable;
+    private string? _alertStateError;
     private readonly LiveStatusDetector _liveDetector;
     private readonly PriceLoader _prices;
     private readonly PopoverViewModel _vm;
@@ -117,6 +127,7 @@ public sealed class TrayController : IDisposable
     private ModelCardWindow? _card;
     private SettingsWindow? _settingsWindow;
     private AnalyticsWindow? _analyticsWindow;
+    private HotkeyHost? _hotkeyHost;
     private IReadOnlyDictionary<Tool, LiveStatus> _live = new Dictionary<Tool, LiveStatus>();
     private string? _iconKey;
     private string _priceNote = "bundled prices";
@@ -128,6 +139,11 @@ public sealed class TrayController : IDisposable
         _fs.Directory.CreateDirectory(options.DataDirectory);
         _settingsStore = new SettingsStore(_fs, Path.Combine(options.DataDirectory, "settings.json"));
         _settings = _settingsStore.Load();
+        _alertStateStore = new AlertStateStore(_fs, Path.Combine(options.DataDirectory, "alerts.json"));
+        var alertState = _alertStateStore.Load();
+        _firedBudgetAlerts = alertState.FiredKeys.ToHashSet(StringComparer.Ordinal);
+        _alertStateAvailable = alertState.Success;
+        _alertStateError = alertState.Error;
 
         // TRACK_CLOCK_OFFSET (seconds, only with TRACK_DIAG=1) shifts the app's clock for rollover checks.
         var time = _time = ShiftedTimeProvider.For(TimeProvider.System, Environment.GetEnvironmentVariable("TRACK_CLOCK_OFFSET"), options.Diagnostics);
@@ -141,7 +157,7 @@ public sealed class TrayController : IDisposable
             new IncrementalLogReader(_fs),
             store,
             time,
-            new SnapshotStore(_fs, Path.Combine(options.DataDirectory, "snapshot.json")),
+            IsRenderOnly ? null : new SnapshotStore(_fs, Path.Combine(options.DataDirectory, "snapshot.json")),
             new DocumentLogReader(_fs));
         _usage = new UsageAggregator(store);
         _periods = new PeriodCalculator(time, TimeZoneInfo.Local);
@@ -157,11 +173,15 @@ public sealed class TrayController : IDisposable
             () => _settings.Providers.ModeFor(Tool.Ollama) != ProviderMode.Off);
         _prices = new PriceLoader(_fs, Path.Combine(options.DataDirectory, "prices.json"), new LiteLlmPriceDownloader(new HttpClient { Timeout = TimeSpan.FromSeconds(20) }), time);
         _vm = new PopoverViewModel(store, _usage, _periods, time, _settings);
+        if (!_alertStateAvailable)
+        {
+            _vm.StatusText = $"Budget alerts are paused because their state could not be read: {_alertStateError}";
+        }
         _vm.SettingsChanged += (_, changed) =>
         {
             _settings = changed;
             _scanCache?.MarkDirty();
-            if (_options.RenderPopoverTo is null && _options.RenderIslandTo is null && _options.RenderAnalyticsTo is null)
+            if (!IsRenderOnly)
             {
                 _settingsStore.Save(changed); // render-only runs never touch the user's settings
             }
@@ -189,7 +209,14 @@ public sealed class TrayController : IDisposable
         _island = new IslandStateMachine(time, () => _settings.Island);
         // The Usage tab lists the same tools as the popover (the visibility rule), so both show the same numbers.
         _islandVm = new IslandViewModel(_island, store, _usage, _periods, time, () => _settings.Island, () => _vm.ListedTools, () => _vm.LiveRows);
-        _islandVm.TabChanged += (_, tab) => _settingsStore.Save(_settings = _settings with { Island = _settings.Island with { OpenTab = tab } });
+        _islandVm.TabChanged += (_, tab) =>
+        {
+            _settings = _settings with { Island = _settings.Island with { OpenTab = tab } };
+            if (!IsRenderOnly)
+            {
+                _settingsStore.Save(_settings);
+            }
+        };
         _pointer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background, (_, _) => OnPointerTick(), ui) { IsEnabled = false };
 
         _tick = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => _vm.Tick(), ui) { IsEnabled = false };
@@ -202,6 +229,13 @@ public sealed class TrayController : IDisposable
         ThemeMode.Dark => true,
         _ => Native.ReadTheme(taskbar: false) == TaskbarTheme.Dark,
     });
+
+    private bool IsRenderOnly =>
+        _options.RenderIconsTo is not null
+        || _options.RenderPopoverTo is not null
+        || _options.RenderIslandTo is not null
+        || _options.RenderAnalyticsTo is not null
+        || _options.RenderSettingsTo is not null;
 
     private TaskbarTheme TaskbarThemeFor(AppOptions o) => o.DarkOverride is { } dark
         ? (dark ? TaskbarTheme.Dark : TaskbarTheme.Light)
@@ -226,6 +260,11 @@ public sealed class TrayController : IDisposable
         _tray.Icon = _renderer.Icon(TrayIconModel.Build(new HashSet<Tool>(), new HashSet<Tool>(), _settings.IconLayout, _settings.IdleLook, _settings.NothingRunningLook, TaskbarThemeFor(_options)), TrayIconRenderer.PixelSize());
         _tray.TrayLeftMouseUp += (_, _) => TogglePopover();
         _tray.ForceCreate(enablesEfficiencyMode: false);
+        if (!IsRenderOnly)
+        {
+            _hotkeyHost = new HotkeyHost(TogglePopover);
+            ApplyHotkeySettings();
+        }
 
         _pointer.Start();
 
@@ -269,6 +308,17 @@ public sealed class TrayController : IDisposable
             return;
         }
 
+        if (_options.RenderSettingsTo is { } settingsTo)
+        {
+            Task.Run(async () =>
+            {
+                _coordinator.Start();
+                _ = await _prices.LoadAsync();
+                _ = _ui.BeginInvoke(DispatcherPriority.ApplicationIdle, () => RenderSettingsAndExit(settingsTo));
+            });
+            return;
+        }
+
         Task.Run(() =>
         {
             _coordinator.Start();
@@ -292,6 +342,7 @@ public sealed class TrayController : IDisposable
     {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _coordinator?.Dispose();
+        _hotkeyHost?.Dispose();
         _tick.Stop();
         _priceTimer.Stop();
         _pointer.Stop();
@@ -299,14 +350,17 @@ public sealed class TrayController : IDisposable
         _watchers.ForEach(w => w.Dispose());
         _islandWindow?.Close();
         _analyticsWindow?.Close();
-        lock (_gate)
+        if (!IsRenderOnly)
         {
-            _ingestor.SaveSnapshot();
+            lock (_gate)
+            {
+                _ingestor.SaveSnapshot();
+            }
         }
 
         // Render-only runs step through views to draw them; they must not
         // change the user's settings (a render run once saved "Month" as the last tab, found 2026-11-18).
-        if (_options.RenderPopoverTo is null && _options.RenderIslandTo is null && _options.RenderAnalyticsTo is null)
+        if (!IsRenderOnly)
         {
             _settingsStore.Save(_settings with { LastPeriod = _vm.SelectedPeriod });
         }
@@ -433,6 +487,7 @@ public sealed class TrayController : IDisposable
                 _vm.UsageRefreshed();
             }
 
+            EvaluateBudgetAlerts();
             UpdateTrayIcon();
             _usageReadOnce = true;
             TrimAfterStart();
@@ -460,6 +515,15 @@ public sealed class TrayController : IDisposable
         _ui.BeginInvoke(() =>
         {
             _live = live;
+            var notifications = _notificationPolicy.Update(working, waiting, _settings.Behavior.NotificationsEnabled);
+            if (_settings.Behavior.NotificationsEnabled && !IsRenderOnly)
+            {
+                foreach (var notification in notifications)
+                {
+                    _tray?.ShowNotification(notification.Title, notification.Message, NotificationIcon.Info, sound: false);
+                }
+            }
+
             lock (_gate)
             {
                 _vm.LiveUpdated(live);
@@ -532,6 +596,8 @@ public sealed class TrayController : IDisposable
 
             RenderIsland();
         };
+        window.ChatTooltipRequested = tool => ChatLauncher.TooltipFor(tool, _settings.Providers.ChatTargetFor(tool));
+        window.ChatLaunchRequested = LaunchChat;
         window.MinimizeClicked += () =>
         {
             _island.Minimize();
@@ -838,6 +904,44 @@ public sealed class TrayController : IDisposable
         Application.Current.Shutdown();
     }
 
+    private void RenderSettingsAndExit(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        const string renderAccent = "#C450B8";
+        var dark = AppDark(_options);
+        var rgb = ColorPickerMath.ToRgb(ColorPickerMath.FromHex(renderAccent));
+        Application.Current.Resources["Accent"] = new SolidColorBrush(Color.FromRgb(rgb.Red, rgb.Green, rgb.Blue));
+        Application.Current.Resources["AccentOn"] = new SolidColorBrush(
+            ColorPickerMath.ContrastTextHex(renderAccent) == "#000000" ? Colors.Black : Colors.White);
+        var edge = ColorPickerMath.ToRgb(ColorPickerMath.FromHex(
+            ColorPickerMath.VisibleAccentHex(renderAccent, dark ? "#28282C" : "#F6F6F8")));
+        Application.Current.Resources["AccentEdge"] = new SolidColorBrush(Color.FromRgb(edge.Red, edge.Green, edge.Blue));
+        var settings = _settings with
+        {
+            Appearance = _settings.Appearance with { Material = WindowMaterial.Solid, AccentColor = renderAccent },
+        };
+        var window = new SettingsWindow(settings)
+        {
+            Dark = dark,
+            Left = -4000,
+            Top = 0,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+        };
+        window.Show();
+        foreach (var tab in Enum.GetValues<SettingsTab>())
+        {
+            window.SelectTab(tab);
+            window.UpdateLayout();
+            SaveWindow(window, Path.Combine(directory, $"settings-{tab.ToString().ToLowerInvariant()}-{(dark ? "dark" : "light")}.png"));
+        }
+
+        window.SaveProviderDropdownForRender(Path.Combine(directory, $"settings-provider-dropdown-{(dark ? "dark" : "light")}.png"));
+        window.SelectTab(SettingsTab.Appearance);
+        window.SaveColorPickerForRender(Path.Combine(directory, $"settings-color-wheel-{(dark ? "dark" : "light")}.png"), renderAccent);
+        window.Close();
+        Application.Current.Shutdown();
+    }
+
     private static void SaveWindow(Window window, string path)
     {
         var content = (FrameworkElement)window.Content;
@@ -997,6 +1101,8 @@ public sealed class TrayController : IDisposable
             _popover.RowLeft += () => _card?.Hide();
             _popover.SettingsRequested += () => OpenSettings(SettingsTab.Appearance);
             _popover.AnalyticsRequested += OpenAnalytics;
+            _popover.ChatTooltipRequested = tool => ChatLauncher.TooltipFor(tool, _settings.Providers.ChatTargetFor(tool));
+            _popover.ChatLaunchRequested += tool => LaunchChat(tool);
             _popover.IsVisibleChanged += (_, _) =>
             {
                 _tick.IsEnabled = _popover.IsVisible;
@@ -1008,7 +1114,10 @@ public sealed class TrayController : IDisposable
                 if (!_popover.IsVisible)
                 {
                     _card?.Hide();
-                    _settingsStore.Save(_settings = _settings with { LastPeriod = _vm.SelectedPeriod });
+                    if (!IsRenderOnly)
+                    {
+                        _settingsStore.Save(_settings = _settings with { LastPeriod = _vm.SelectedPeriod });
+                    }
                 }
             };
         }
@@ -1022,6 +1131,82 @@ public sealed class TrayController : IDisposable
         _vm.Tick();
         // Pinned (--open) opens at the right edge, like a tray popover; a click opens near the pointer.
         _popover.ShowNear(pinned ? new Point(double.MaxValue / 4, 0) : Native.CursorPixels());
+    }
+
+    private string LaunchChat(Tool tool)
+    {
+        var model = _live.TryGetValue(tool, out var status) ? status.LastModel : null;
+        var result = ChatLauncher.Launch(tool, _settings.Providers.ChatTargetFor(tool), model);
+        var message = result.Message ?? $"Opened {result.Target!.Label}.";
+        _vm.StatusText = message;
+        return message;
+    }
+
+    private void EvaluateBudgetAlerts()
+    {
+        if (IsRenderOnly)
+        {
+            return;
+        }
+
+        var behavior = _settings.Behavior;
+        if (!behavior.NotificationsEnabled || !behavior.Budget.Enabled)
+        {
+            return;
+        }
+
+        if (!_alertStateAvailable)
+        {
+            _vm.StatusText = $"Budget alerts are paused because their state could not be read: {_alertStateError}";
+            return;
+        }
+
+        IReadOnlyDictionary<Tool, UsageTotals> providerTotals;
+        UsageTotals total;
+        TimeRange range;
+        lock (_gate)
+        {
+            range = _periods.Range(behavior.Budget.Period == BudgetPeriod.Day ? Period.Today : Period.Month);
+            providerTotals = ProviderCatalog.Order.ToDictionary(tool => tool, tool => _usage.Totals(tool, range));
+            total = _usage.Totals(null, range);
+        }
+
+        var periodStart = DateOnly.FromDateTime(_periods.ToLocal(range.StartUtc));
+        var alerts = _alertEvaluator.Evaluate(behavior.Budget, periodStart, providerTotals, total, _firedBudgetAlerts, behavior.NotificationsEnabled);
+        if (alerts.Count == 0)
+        {
+            return;
+        }
+
+        var updated = new HashSet<string>(_firedBudgetAlerts, StringComparer.Ordinal);
+        foreach (var alert in alerts)
+        {
+            updated.Add(alert.Key);
+        }
+
+        var saved = _alertStateStore.Save(updated);
+        if (!saved.Success)
+        {
+            _alertStateAvailable = false;
+            _alertStateError = saved.Error;
+            _vm.StatusText = $"Budget alerts are paused because their state could not be saved: {saved.Error}";
+            return;
+        }
+
+        _firedBudgetAlerts = updated;
+        foreach (var alert in alerts)
+        {
+            _tray?.ShowNotification("Budget alert", alert.Message, NotificationIcon.Warning, sound: false);
+        }
+    }
+
+    private void ApplyHotkeySettings()
+    {
+        _hotkeyHost?.Configure(_settings.Behavior.HotkeyEnabled, _settings.Behavior.HotkeyGesture);
+        if (_settingsWindow is not null && _hotkeyHost is { } hotkey)
+        {
+            _settingsWindow.SetHotkeyStatus(hotkey.Status);
+        }
     }
 
     private void ShowCard(Tool tool, FrameworkElement? row = null)
@@ -1123,7 +1308,10 @@ public sealed class TrayController : IDisposable
     private void ChangeSettings(TrackSettings settings, bool fromSettingsWindow = false)
     {
         _settings = settings;
-        _settingsStore.Save(settings);
+        if (!IsRenderOnly)
+        {
+            _settingsStore.Save(settings);
+        }
         if (!fromSettingsWindow)
         {
             _settingsWindow?.ApplySettings(settings);
@@ -1135,6 +1323,7 @@ public sealed class TrayController : IDisposable
         }
 
         ApplyTheme();
+        ApplyHotkeySettings();
         UpdateTrayIcon(force: true);
     }
 
@@ -1151,6 +1340,11 @@ public sealed class TrayController : IDisposable
         }
 
         _settingsWindow.Dark = AppDark(_options);
+        if (_hotkeyHost is { } hotkey)
+        {
+            _settingsWindow.SetHotkeyStatus(hotkey.Status);
+        }
+
         _settingsWindow.SelectTab(tab);
         _settingsWindow.Show();
         _settingsWindow.Activate();
@@ -1228,6 +1422,11 @@ public sealed class TrayController : IDisposable
             ? customAccent
             : Color.FromRgb(0x0A, 0x66, 0xD8);
         resources["Accent"] = new SolidColorBrush(accent);
+        var accentHex = $"#{accent.R:X2}{accent.G:X2}{accent.B:X2}";
+        resources["AccentOn"] = new SolidColorBrush(
+            ColorPickerMath.ContrastTextHex(accentHex) == "#000000" ? Colors.Black : Colors.White);
+        resources["AccentEdge"] = new SolidColorBrush(
+            ParseColor(ColorPickerMath.VisibleAccentHex(accentHex, dark ? "#28282C" : "#F6F6F8")));
 
         foreach (var provider in ProviderCatalog.All)
         {
@@ -1258,4 +1457,10 @@ public sealed class TrayController : IDisposable
         color = default;
         return false;
     }
+
+    private static Color ParseColor(string hex) =>
+        Color.FromRgb(
+            byte.Parse(hex.AsSpan(1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+            byte.Parse(hex.AsSpan(3, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+            byte.Parse(hex.AsSpan(5, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
 }

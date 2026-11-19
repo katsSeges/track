@@ -73,7 +73,9 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Border Style="{StaticResource LiveProviderRow}" Tag="{Binding Tool}"
-                                    MouseEnter="Row_MouseEnter" MouseLeave="Row_MouseLeave" GotKeyboardFocus="Row_GotFocus" LostKeyboardFocus="Row_LostFocus">
+                                    Focusable="True" Cursor="Hand"
+                                    MouseEnter="Row_MouseEnter" MouseLeave="Row_MouseLeave" MouseLeftButtonUp="Row_MouseLeftButtonUp" KeyDown="Row_KeyDown"
+                                    GotKeyboardFocus="Row_GotFocus" LostKeyboardFocus="Row_LostFocus">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
@@ -172,7 +174,9 @@
                     <DataTemplate>
                         <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0">
                             <Border Style="{StaticResource UsageProviderRow}" Margin="0,1,0,0" Tag="{Binding Tool}"
-                                    MouseEnter="Row_MouseEnter" MouseLeave="Row_MouseLeave" GotKeyboardFocus="Row_GotFocus" LostKeyboardFocus="Row_LostFocus">
+                                    Focusable="True" Cursor="Hand"
+                                    MouseEnter="Row_MouseEnter" MouseLeave="Row_MouseLeave" MouseLeftButtonUp="Row_MouseLeftButtonUp" KeyDown="Row_KeyDown"
+                                    GotKeyboardFocus="Row_GotFocus" LostKeyboardFocus="Row_LostFocus">
                                 <!-- Line 1: logo name … big tokens. Line 2: price · in · out · cache. Line 3: usage bar. -->
                                 <Grid>
                                     <Grid.ColumnDefinitions>

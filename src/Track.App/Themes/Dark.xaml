@@ -2,7 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- Dark palette from design/track-mockup-v2.html dark tokens. -->
     <SolidColorBrush x:Key="Fg" Color="#F2F2F4" />
-    <SolidColorBrush x:Key="Muted" Color="#9A9AA1" />
+    <SolidColorBrush x:Key="Muted" Color="#B0B0B8" />
     <SolidColorBrush x:Key="Line" Color="#1AFFFFFF" />
     <SolidColorBrush x:Key="RowBg" Color="#0DFFFFFF" />
     <SolidColorBrush x:Key="Accent" Color="#4C9BFF" />
@@ -11,6 +11,16 @@
     <SolidColorBrush x:Key="Warn" Color="#FFB340" />
     <SolidColorBrush x:Key="PopBg" Color="#B828282C" />
     <SolidColorBrush x:Key="PopSolid" Color="#28282C" />
+    <SolidColorBrush x:Key="SurfaceBg" Color="#28282C" />
+    <SolidColorBrush x:Key="SurfaceElevated" Color="#34343A" />
+    <SolidColorBrush x:Key="InputBg" Color="#34343A" />
+    <SolidColorBrush x:Key="ControlBorder" Color="#85858F" />
+    <SolidColorBrush x:Key="ControlHover" Color="#3B3B42" />
+    <SolidColorBrush x:Key="ControlSelected" Color="#404049" />
+    <SolidColorBrush x:Key="AccentOn" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="AccentEdge" Color="#4C9BFF" />
+    <SolidColorBrush x:Key="ErrorText" Color="#FF968F" />
+    <SolidColorBrush x:Key="WarningText" Color="#FFC857" />
     <SolidColorBrush x:Key="SegSelected" Color="#3A3A40" />
     <SolidColorBrush x:Key="Claude" Color="#E08560" />
     <SolidColorBrush x:Key="Codex" Color="#E4E4EA" />

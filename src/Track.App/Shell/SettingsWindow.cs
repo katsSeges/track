@@ -1,7 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Track.Core;
 using Track.Core.Display;
 using Track.Core.Providers;
@@ -17,6 +21,9 @@ internal sealed class SettingsWindow : Window
     private SettingsViewModel _viewModel;
     private TabControl _tabs = null!;
     private TextBlock _materialNote = null!;
+    private TextBlock _hotkeyStatus = null!;
+    private ColorPickerEditor? _accentEditor;
+    private ComboBox? _providerModeSelector;
 
     public SettingsWindow(TrackSettings settings)
     {
@@ -30,7 +37,8 @@ internal sealed class SettingsWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ResizeMode = ResizeMode.CanResizeWithGrip;
         Background = Brushes.Transparent;
-        Foreground = Brushes.Black;
+        SetResourceReference(Control.ForegroundProperty, "Fg");
+        Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("Themes/WindowControls.xaml", UriKind.Relative) });
         Content = _surface;
         SourceInitialized += (_, _) =>
         {
@@ -60,10 +68,36 @@ internal sealed class SettingsWindow : Window
         _tabs.SelectedIndex = (int)tab;
     }
 
+    public void SaveColorPickerForRender(string path, string color) => _accentEditor?.SavePopupForRender(path, color);
+
+    public void SaveProviderDropdownForRender(string path)
+    {
+        if (_providerModeSelector is null)
+        {
+            return;
+        }
+
+        _viewModel.SelectedTab = SettingsTab.Providers;
+        _tabs.SelectedIndex = (int)SettingsTab.Providers;
+        _providerModeSelector.ApplyTemplate();
+        _providerModeSelector.IsDropDownOpen = true;
+        UpdateLayout();
+        if (_providerModeSelector.Template.FindName("PART_Popup", _providerModeSelector) is Popup { Child: FrameworkElement popupContent } popup)
+        {
+            popupContent.Measure(new Size(400, 300));
+            popupContent.Arrange(new Rect(new Point(0, 0), popupContent.DesiredSize));
+            popupContent.UpdateLayout();
+            SaveElement(popupContent, path);
+        }
+    }
+
+    public void SetHotkeyStatus(string status) => _hotkeyStatus.Text = status;
+
     public void ApplyBackdrop()
     {
         var supported = Native.ApplyBackdrop(this, Dark, _viewModel.Settings.Appearance.Material);
         _surface.SetResourceReference(Border.BackgroundProperty, supported ? "PopBg" : "PopSolid");
+        _surface.SetResourceReference(Border.BorderBrushProperty, "ControlBorder");
         _materialNote.Text = supported || _viewModel.Settings.Appearance.Material == WindowMaterial.Solid
             ? "Changes apply immediately and are saved automatically."
             : "This material is not supported on this Windows version; Track is using Solid.";
@@ -71,7 +105,10 @@ internal sealed class SettingsWindow : Window
 
     private void BuildTabs()
     {
+        _accentEditor = null;
+        _providerModeSelector = null;
         _tabs = new TabControl { SelectedIndex = (int)_viewModel.SelectedTab };
+        _tabs.SetResourceReference(Control.BackgroundProperty, "PopSolid");
         _tabs.SelectionChanged += (_, _) =>
         {
             if (_tabs.SelectedIndex >= 0 && _tabs.SelectedIndex < Enum.GetValues<SettingsTab>().Length)
@@ -84,7 +121,9 @@ internal sealed class SettingsWindow : Window
         _tabs.Items.Add(new TabItem { Header = "Behavior", Content = BehaviorTab() });
         _tabs.SetResourceReference(Control.ForegroundProperty, "Fg");
         var root = new StackPanel();
-        root.Children.Add(new TextBlock { Text = "Settings", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, 0, 0, 12) });
+        var title = new TextBlock { Text = "Settings", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, 0, 0, 12) };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
+        root.Children.Add(title);
         root.Children.Add(_tabs);
         _materialNote = new TextBlock { Margin = new Thickness(3, 10, 3, 0), FontSize = 11 };
         root.Children.Add(_materialNote);
@@ -97,68 +136,53 @@ internal sealed class SettingsWindow : Window
     {
         var settings = _viewModel.Settings.Appearance;
         var panel = TabPanel();
-        panel.Children.Add(Labeled("Theme", Combo(Enum.GetValues<ThemeMode>(), settings.Theme, value => _viewModel.SetTheme(value))));
-        panel.Children.Add(Labeled("Window material", Combo(Enum.GetValues<WindowMaterial>(), settings.Material, value =>
+        panel.Children.Add(SectionHeading("Appearance", "Choose how Track follows Windows and how its windows feel."));
+        var theme = Combo(Enum.GetValues<ThemeMode>(), settings.Theme, value => _viewModel.SetTheme(value));
+        var material = Combo(Enum.GetValues<WindowMaterial>(), settings.Material, value =>
         {
             _viewModel.SetMaterial(value);
             ApplyBackdrop();
-        })));
-        var accent = new TextBox { Text = settings.AccentColor, Width = 110, MaxLength = 7 };
-        var accentError = ErrorText();
-        accent.LostFocus += (_, _) =>
-        {
-            try
-            {
-                _viewModel.SetAccentColor(accent.Text);
-                accentError.Text = "";
-            }
-            catch (ArgumentException error)
-            {
-                accentError.Text = error.Message;
-            }
-        };
-        panel.Children.Add(Labeled("Accent color", accent));
-        panel.Children.Add(accentError);
-        panel.Children.Add(new TextBlock { Text = "Provider colors", FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 4) });
+        });
+        _accentEditor = new ColorPickerEditor("Accent", settings.AccentColor, new AppearanceSettings().AccentColor, _viewModel.SetAccentColor);
+        var appearanceFields = new StackPanel();
+        appearanceFields.Children.Add(FormRow("Theme", theme));
+        appearanceFields.Children.Add(FormRow("Window material", material));
+        appearanceFields.Children.Add(FormRow("Accent color", _accentEditor));
+        panel.Children.Add(FormCard(appearanceFields));
 
+        panel.Children.Add(SectionHeading("Provider colors", "Light and dark colors are independent. Use a swatch to open the color wheel."));
+        var columns = new Grid { Margin = new Thickness(10, 0, 10, 4) };
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        AddGridText(columns, "Provider", 0);
+        AddGridText(columns, "Light", 1, muted: true);
+        AddGridText(columns, "Dark", 2, muted: true);
+        panel.Children.Add(columns);
+        var colorRows = new StackPanel();
         foreach (var provider in ProviderCatalog.All)
         {
             var colors = settings.ProviderColors.TryGetValue(provider.Id, out var custom)
                 ? custom
                 : new ProviderColorOverride(provider.Colors.Light, provider.Colors.Dark);
-            var light = ColorBox(colors.Light);
-            var dark = ColorBox(colors.Dark);
-            var error = ErrorText();
-            void SaveColors()
-            {
-                try
-                {
-                    _viewModel.SetProviderColors(provider.Id, light.Text, dark.Text);
-                    error.Text = "";
-                }
-                catch (ArgumentException exception)
-                {
-                    error.Text = exception.Message;
-                }
-            }
-
-            light.LostFocus += (_, _) => SaveColors();
-            dark.LostFocus += (_, _) => SaveColors();
-            panel.Children.Add(Labeled(provider.Name, new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Children =
-                {
-                    light,
-                    new TextBlock { Text = "Light", Margin = new Thickness(4, 5, 12, 0), FontSize = 11 },
-                    dark,
-                    new TextBlock { Text = "Dark", Margin = new Thickness(4, 5, 0, 0), FontSize = 11 },
-                },
-            }));
-            panel.Children.Add(error);
+            var row = new Grid { Margin = new Thickness(10, 5, 10, 5) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+            AddGridText(row, provider.Name, 0);
+            var light = new ColorPickerEditor("Light", colors.Light, provider.Colors.Light, value =>
+                _viewModel.SetProviderColors(provider.Id, value, colors.Dark), showLabel: false);
+            var dark = new ColorPickerEditor("Dark", colors.Dark, provider.Colors.Dark, value =>
+                _viewModel.SetProviderColors(provider.Id, colors.Light, value), showLabel: false);
+            Grid.SetColumn(light, 1);
+            Grid.SetColumn(dark, 2);
+            row.Children.Add(light);
+            row.Children.Add(dark);
+            colorRows.Children.Add(row);
         }
 
-        var reset = new Button { Content = "Reset provider colors", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(10, 4, 10, 4) };
+        panel.Children.Add(FormCard(colorRows));
+        var reset = new Button { Content = "Reset provider colors", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
         reset.Click += (_, _) => _viewModel.ResetProviderColors();
         panel.Children.Add(reset);
         return Scroll(panel);
@@ -167,17 +191,43 @@ internal sealed class SettingsWindow : Window
     private UIElement ProvidersTab()
     {
         var panel = TabPanel();
-        panel.Children.Add(new TextBlock
-        {
-            Text = "Auto shows providers with recent usage or live activity. On always shows a provider; Off disables scanning and display.",
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 10),
-        });
+        panel.Children.Add(SectionHeading("Providers & chat", "Auto shows providers with recent usage or live activity. On always shows a provider; Off disables scanning and display."));
         foreach (var provider in ProviderCatalog.All)
         {
             var mode = _viewModel.Settings.Providers.ModeFor(provider.Id);
             var selector = Combo(Enum.GetValues<ProviderMode>(), mode, value => _viewModel.SetProviderMode(provider.Id, value));
-            panel.Children.Add(Labeled(provider.Name, selector));
+            if (_providerModeSelector is null)
+            {
+                _providerModeSelector = selector;
+            }
+            var targets = ChatTargetResolver.OptionsFor(provider.Id);
+            var selectedTarget = _viewModel.Settings.Providers.ChatTargetFor(provider.Id) ?? "";
+            var targetSelector = new ComboBox
+            {
+                ItemsSource = targets.Select(target => target.Label).ToArray(),
+                SelectedItem = targets.FirstOrDefault(target => target.Id == selectedTarget)?.Label ?? targets[0].Label,
+                MinWidth = 170,
+                Padding = new Thickness(5, 3, 5, 3),
+            };
+            targetSelector.SelectionChanged += (_, _) =>
+            {
+                if (targetSelector.SelectedItem is string label
+                    && targets.FirstOrDefault(target => target.Label == label) is { } target)
+                {
+                    _viewModel.SetChatTarget(provider.Id, target.Id);
+                }
+            };
+            var fields = new StackPanel();
+            fields.Children.Add(FormRow("Display", selector));
+            fields.Children.Add(FormRow("Open chat with", targetSelector));
+            var title = new TextBlock { Text = provider.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, 0, 0, 4) };
+            title.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
+            var contents = new StackPanel();
+            contents.Children.Add(title);
+            contents.Children.Add(fields);
+            var card = FormCard(contents);
+            card.Margin = new Thickness(0, 0, 0, 10);
+            panel.Children.Add(card);
         }
 
         return Scroll(panel);
@@ -187,49 +237,225 @@ internal sealed class SettingsWindow : Window
     {
         var settings = _viewModel.Settings.Behavior;
         var panel = TabPanel();
-        var notifications = new CheckBox { Content = "Enable notifications", IsChecked = settings.NotificationsEnabled, Margin = new Thickness(0, 0, 0, 10) };
+        panel.Children.Add(SectionHeading("Behavior", "Control notifications, shortcuts and usage limits."));
+        var notifications = new CheckBox { Content = "Enable notifications", IsChecked = settings.NotificationsEnabled, Margin = new Thickness(0, 0, 0, 6) };
         notifications.Checked += (_, _) => _viewModel.SetNotificationsEnabled(true);
         notifications.Unchecked += (_, _) => _viewModel.SetNotificationsEnabled(false);
-        panel.Children.Add(notifications);
-        panel.Children.Add(new TextBlock
+        var notificationGroup = new StackPanel();
+        notificationGroup.Children.Add(GroupHeading("Notifications"));
+        notificationGroup.Children.Add(notifications);
+        var notificationNote = new TextBlock
         {
             Text = "This switch controls both agent-event and budget-alert notifications.",
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 16),
-        });
+            Margin = new Thickness(24, 0, 0, 0),
+        };
+        notificationNote.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        notificationGroup.Children.Add(notificationNote);
+        panel.Children.Add(FormCard(notificationGroup));
 
         var gesture = new TextBox { Text = settings.HotkeyGesture, Width = 180, MaxLength = 64 };
+        var hotkeyError = ErrorText();
         var hotkey = new CheckBox { Content = "Enable global popover hotkey", IsChecked = settings.HotkeyEnabled, Margin = new Thickness(0, 0, 0, 8) };
-        hotkey.Checked += (_, _) => _viewModel.SetHotkey(true, gesture.Text);
-        hotkey.Unchecked += (_, _) => _viewModel.SetHotkey(false, gesture.Text);
-        panel.Children.Add(hotkey);
-        gesture.LostFocus += (_, _) => _viewModel.SetHotkey(hotkey.IsChecked == true, gesture.Text);
-        panel.Children.Add(Labeled("Hotkey", gesture));
-        return panel;
+        void SaveHotkey(bool enabled)
+        {
+            try
+            {
+                _viewModel.SetHotkey(enabled, gesture.Text);
+                hotkeyError.Text = "";
+            }
+            catch (ArgumentException error)
+            {
+                hotkeyError.Text = error.Message;
+            }
+        }
+
+        hotkey.Checked += (_, _) => SaveHotkey(true);
+        hotkey.Unchecked += (_, _) => SaveHotkey(false);
+        var hotkeyGroup = new StackPanel();
+        hotkeyGroup.Children.Add(GroupHeading("Keyboard shortcut"));
+        hotkeyGroup.Children.Add(hotkey);
+        gesture.LostFocus += (_, _) => SaveHotkey(hotkey.IsChecked == true);
+        hotkeyGroup.Children.Add(FormRow("Shortcut", gesture));
+        hotkeyGroup.Children.Add(hotkeyError);
+        _hotkeyStatus = ErrorText();
+        _hotkeyStatus.SetResourceReference(TextBlock.ForegroundProperty, "WarningText");
+        hotkeyGroup.Children.Add(_hotkeyStatus);
+        panel.Children.Add(FormCard(hotkeyGroup));
+
+        var budget = settings.Budget;
+        var enabled = new CheckBox { Content = "Enable spend/token budget alerts", IsChecked = budget.Enabled, Margin = new Thickness(0, 0, 0, 8) };
+        enabled.Checked += (_, _) => _viewModel.SetBudgetEnabled(true);
+        enabled.Unchecked += (_, _) => _viewModel.SetBudgetEnabled(false);
+        var budgetGroup = new StackPanel();
+        budgetGroup.Children.Add(GroupHeading("Spend and token budgets"));
+        budgetGroup.Children.Add(enabled);
+        budgetGroup.Children.Add(FormRow("Period", Combo(Enum.GetValues<BudgetPeriod>(), budget.Period, value => _viewModel.SetBudgetPeriod(value))));
+        var budgetNote = new TextBlock
+        {
+            Text = "Leave a limit blank to disable it. Spend alerts use known model pricing; unpriced usage may make that amount a lower bound.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 10),
+            FontSize = 11,
+        };
+        budgetNote.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        budgetGroup.Children.Add(budgetNote);
+        budgetGroup.Children.Add(BudgetEditor("Total", null, budget.For(null)));
+        foreach (var provider in ProviderCatalog.All)
+        {
+            budgetGroup.Children.Add(BudgetEditor(provider.Name, provider.Id, budget.For(provider.Id)));
+        }
+
+        panel.Children.Add(FormCard(budgetGroup));
+        return Scroll(panel);
+    }
+
+    private UIElement BudgetEditor(string label, Tool? tool, BudgetThreshold threshold)
+    {
+        var spend = new TextBox
+        {
+            Text = threshold.Spend?.ToString("0.##", CultureInfo.CurrentCulture) ?? "",
+            Width = 76,
+            ToolTip = "Spend limit",
+        };
+        var tokens = new TextBox
+        {
+            Text = threshold.Tokens?.ToString(CultureInfo.CurrentCulture) ?? "",
+            Width = 90,
+            ToolTip = "Token limit",
+        };
+        var error = ErrorText();
+        void Save()
+        {
+            decimal? spendLimit = null;
+            long? tokenLimit = null;
+            if (spend.Text.Length > 0)
+            {
+                if (!decimal.TryParse(spend.Text, NumberStyles.Number, CultureInfo.CurrentCulture, out var value))
+                {
+                    error.Text = "Enter a positive spend amount or leave it blank.";
+                    return;
+                }
+
+                spendLimit = value;
+            }
+
+            if (tokens.Text.Length > 0)
+            {
+                if (!long.TryParse(tokens.Text, NumberStyles.Number, CultureInfo.CurrentCulture, out var value))
+                {
+                    error.Text = "Enter a positive token count or leave it blank.";
+                    return;
+                }
+
+                tokenLimit = value;
+            }
+
+            try
+            {
+                _viewModel.SetBudgetThreshold(tool, new BudgetThreshold(spendLimit, tokenLimit));
+                error.Text = "";
+            }
+            catch (ArgumentOutOfRangeException exception)
+            {
+                error.Text = exception.Message;
+            }
+        }
+
+        spend.LostFocus += (_, _) => Save();
+        tokens.LostFocus += (_, _) => Save();
+        var fields = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Children =
+            {
+                spend,
+                MutedText("Spend"),
+                tokens,
+                MutedText("Tokens"),
+            },
+        };
+        return new StackPanel
+        {
+            Children =
+            {
+                FormRow(label, fields),
+                error,
+            },
+        };
     }
 
     private void OnSettingsChanged(object? sender, TrackSettings settings) => SettingsChanged?.Invoke(this, settings);
 
-    private static StackPanel TabPanel() => new() { Margin = new Thickness(14), Orientation = Orientation.Vertical };
+    private static StackPanel TabPanel() => new() { Margin = new Thickness(12), Orientation = Orientation.Vertical };
 
     private static ScrollViewer Scroll(UIElement content) => new()
     {
         Content = content,
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        MaxHeight = Math.Max(220, SystemParameters.WorkArea.Height - 220),
+        MaxHeight = Math.Max(220, SystemParameters.WorkArea.Height - 250),
     };
 
-    private static UIElement Labeled(string label, UIElement control)
+    private static UIElement SectionHeading(string title, string description)
     {
-        var grid = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(145) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        var panel = new StackPanel { Margin = new Thickness(2, 0, 2, 12) };
+        var heading = new TextBlock { Text = title, FontSize = 18, FontWeight = FontWeights.SemiBold };
+        heading.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
+        var note = new TextBlock { Text = description, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
+        note.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        panel.Children.Add(heading);
+        panel.Children.Add(note);
+        return panel;
+    }
+
+    private static TextBlock GroupHeading(string text)
+    {
+        var heading = new TextBlock { Text = text, FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 10) };
+        heading.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
+        return heading;
+    }
+
+    private static Border FormCard(UIElement content)
+    {
+        var card = new Border
+        {
+            Child = content,
+            Padding = new Thickness(14),
+            Margin = new Thickness(0, 0, 0, 12),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "SurfaceElevated");
+        card.SetResourceReference(Border.BorderBrushProperty, "ControlBorder");
+        return card;
+    }
+
+    private static Grid FormRow(string label, UIElement control)
+    {
+        var grid = new Grid { Margin = new Thickness(0, 5, 0, 5) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
         text.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
         Grid.SetColumn(control, 1);
         grid.Children.Add(text);
         grid.Children.Add(control);
         return grid;
+    }
+
+    private static void AddGridText(Grid grid, string text, int column, bool muted = false)
+    {
+        var label = new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center, FontSize = 11, FontWeight = FontWeights.SemiBold };
+        label.SetResourceReference(TextBlock.ForegroundProperty, muted ? "Muted" : "Fg");
+        Grid.SetColumn(label, column);
+        grid.Children.Add(label);
+    }
+
+    private static TextBlock MutedText(string text)
+    {
+        var label = new TextBlock { Text = text, Margin = new Thickness(5, 5, 12, 0), FontSize = 11 };
+        label.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        return label;
     }
 
     private static ComboBox Combo<T>(IEnumerable<T> values, T selected, Action<T> changed)
@@ -245,13 +471,24 @@ internal sealed class SettingsWindow : Window
         return combo;
     }
 
-    private static TextBox ColorBox(string color) => new()
+    private static TextBlock ErrorText()
     {
-        Text = color,
-        Width = 78,
-        MaxLength = 7,
-        Padding = new Thickness(3),
-    };
+        var text = new TextBlock { FontSize = 10.5, TextWrapping = TextWrapping.Wrap };
+        text.SetResourceReference(TextBlock.ForegroundProperty, "ErrorText");
+        return text;
+    }
 
-    private static TextBlock ErrorText() => new() { Foreground = Brushes.IndianRed, FontSize = 10.5, TextWrapping = TextWrapping.Wrap };
+    private static void SaveElement(FrameworkElement element, string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        var scale = VisualTreeHelper.GetDpi(element).DpiScaleX;
+        var width = Math.Max(1, (int)Math.Ceiling(element.ActualWidth * scale));
+        var height = Math.Max(1, (int)Math.Ceiling(element.ActualHeight * scale));
+        var bitmap = new RenderTargetBitmap(width, height, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        bitmap.Render(element);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var output = File.Create(path);
+        encoder.Save(output);
+    }
 }

@@ -22,8 +22,10 @@ internal sealed class AnalyticsWindow : Window
     private readonly Func<IReadOnlyList<Tool>> _visibleProviders;
     private readonly Border _surface = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(18) };
     private readonly ComboBox _preset = new() { Width = 130, Margin = new Thickness(0, 0, 8, 0) };
-    private readonly DatePicker _start = new() { Width = 140, Margin = new Thickness(0, 0, 8, 0) };
-    private readonly DatePicker _end = new() { Width = 140, Margin = new Thickness(0, 0, 8, 0) };
+    private readonly TextBlock _startLabel = new() { Text = "From", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), FontSize = 11 };
+    private readonly TextBox _start = new() { Width = 140, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Start date (yyyy-MM-dd)" };
+    private readonly TextBlock _endLabel = new() { Text = "To", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), FontSize = 11 };
+    private readonly TextBox _end = new() { Width = 140, Margin = new Thickness(0, 0, 8, 0), ToolTip = "End date (yyyy-MM-dd)" };
     private readonly TextBlock _status = new() { Margin = new Thickness(0, 4, 0, 6), FontSize = 11 };
     private readonly StackPanel _content = new();
     private readonly AnalyticsChart _tokenChart = new(AnalyticsChartMetric.Tokens);
@@ -55,7 +57,8 @@ internal sealed class AnalyticsWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         ResizeMode = ResizeMode.CanResizeWithGrip;
         Background = Brushes.Transparent;
-        Foreground = Brushes.Black;
+        SetResourceReference(Control.ForegroundProperty, "Fg");
+        Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("Themes/WindowControls.xaml", UriKind.Relative) });
         Content = _surface;
         SourceInitialized += (_, _) =>
         {
@@ -82,6 +85,7 @@ internal sealed class AnalyticsWindow : Window
     {
         var supported = Native.ApplyBackdrop(this, _dark, _material);
         _surface.SetResourceReference(Border.BackgroundProperty, supported ? "PopBg" : "PopSolid");
+        _surface.SetResourceReference(Border.BorderBrushProperty, "ControlBorder");
     }
 
     public void PrepareForRender()
@@ -116,14 +120,18 @@ internal sealed class AnalyticsWindow : Window
         export.Click += (_, _) => ExportCsv();
         var rangeControls = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 4) };
         rangeControls.Children.Add(_preset);
+        rangeControls.Children.Add(_startLabel);
         rangeControls.Children.Add(_start);
+        rangeControls.Children.Add(_endLabel);
         rangeControls.Children.Add(_end);
         rangeControls.Children.Add(apply);
         rangeControls.Children.Add(export);
 
         var root = new StackPanel();
         var title = new DockPanel();
-        title.Children.Add(new TextBlock { Text = "Analytics", FontSize = 22, FontWeight = FontWeights.SemiBold });
+        var heading = new TextBlock { Text = "Analytics", FontSize = 22, FontWeight = FontWeights.SemiBold };
+        heading.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
+        title.Children.Add(heading);
         root.Children.Add(title);
         root.Children.Add(rangeControls);
         root.Children.Add(_status);
@@ -347,8 +355,8 @@ internal sealed class AnalyticsWindow : Window
                 1 => _builder.LastDays(30),
                 2 => _builder.LastDays(90),
                 _ => _builder.CustomRange(
-                    DateOnly.FromDateTime(_start.SelectedDate ?? throw new ArgumentException("Choose a start date.")),
-                    DateOnly.FromDateTime(_end.SelectedDate ?? throw new ArgumentException("Choose an end date."))),
+                    ParseDate(_start.Text, "start"),
+                    ParseDate(_end.Text, "end")),
             };
             RefreshData();
         }
@@ -361,14 +369,28 @@ internal sealed class AnalyticsWindow : Window
     private void UpdateDateInputs()
     {
         var custom = _preset.SelectedIndex == 3;
+        _startLabel.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+        _endLabel.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
         _start.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
         _end.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
         if (custom)
         {
-            _start.SelectedDate ??= _range.StartDate.ToDateTime(TimeOnly.MinValue);
-            _end.SelectedDate ??= _range.EndDateInclusive.ToDateTime(TimeOnly.MinValue);
+            if (string.IsNullOrWhiteSpace(_start.Text))
+            {
+                _start.Text = _range.StartDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            }
+
+            if (string.IsNullOrWhiteSpace(_end.Text))
+            {
+                _end.Text = _range.EndDateInclusive.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            }
         }
     }
+
+    private static DateOnly ParseDate(string value, string label) =>
+        DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            ? date
+            : throw new ArgumentException($"Enter the {label} date as yyyy-MM-dd.");
 
     private void ExportCsv()
     {

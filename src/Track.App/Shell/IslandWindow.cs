@@ -88,6 +88,10 @@ public sealed class IslandWindow : Window
     /// <summary>A click (or Enter) on a bar of the Usage tab's chart.</summary>
     public event Action<int>? BarSelected;
 
+    public Func<Tool, string?>? ChatLaunchRequested { get; set; }
+
+    public Func<Tool, string?>? ChatTooltipRequested { get; set; }
+
     /// <summary>The screen area (device-independent pixels) to center the island in.</summary>
     public Rect Screen { get; set; } = SystemParameters.WorkArea;
 
@@ -421,7 +425,24 @@ public sealed class IslandWindow : Window
                 agent.Children.Add(SubAgentRows(r.Subs));
             }
 
-            panel.Children.Add(new Border { BorderBrush = Rule, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 8), Child = agent });
+            var row = new Border { BorderBrush = Rule, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 8), Child = agent };
+            row.Focusable = true;
+            row.Cursor = Cursors.Hand;
+            row.ToolTip = ChatTooltipRequested?.Invoke(r.Tool);
+            row.MouseLeftButtonUp += (_, e) =>
+            {
+                row.ToolTip = ChatLaunchRequested?.Invoke(r.Tool) ?? row.ToolTip;
+                e.Handled = true;
+            };
+            row.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    row.ToolTip = ChatLaunchRequested?.Invoke(r.Tool) ?? row.ToolTip;
+                    e.Handled = true;
+                }
+            };
+            panel.Children.Add(row);
         }
 
         if (c.Rows.Count == 0 && c.ProviderStatuses is not { Count: > 0 })

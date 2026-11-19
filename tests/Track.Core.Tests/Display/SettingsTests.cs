@@ -43,17 +43,27 @@ public class SettingsTests
         vm.SetAccentColor("#12ab34");
         vm.SetProviderColors(Tool.Gemini, "#112233", "#445566");
         vm.SetProviderMode(Tool.Gemini, ProviderMode.On);
+        vm.SetChatTarget(Tool.Gemini, "gemini-cli");
         vm.SetNotificationsEnabled(true);
-        vm.SetHotkey(false, "Alt+Shift+T");
+        vm.SetHotkey(false, "not a hotkey");
+        vm.SetBudgetEnabled(true);
+        vm.SetBudgetPeriod(BudgetPeriod.Month);
+        vm.SetBudgetThreshold(null, new BudgetThreshold(25, 1000));
+        vm.SetBudgetThreshold(Tool.Gemini, new BudgetThreshold(5, 400));
 
         Assert.Equal(SettingsTab.Providers, vm.SelectedTab);
-        Assert.Equal(7, changed.Count);
+        Assert.Equal(12, changed.Count);
         Assert.Equal("#12AB34", vm.Settings.Appearance.AccentColor);
         Assert.Equal(new ProviderColorOverride("#112233", "#445566"), vm.Settings.Appearance.ProviderColors[Tool.Gemini]);
         Assert.Equal(ProviderMode.On, vm.Settings.Providers.ModeFor(Tool.Gemini));
+        Assert.Equal("gemini-cli", vm.Settings.Providers.ChatTargetFor(Tool.Gemini));
         Assert.True(vm.Settings.Behavior.NotificationsEnabled);
         Assert.False(vm.Settings.Behavior.HotkeyEnabled);
-        Assert.Equal("Alt+Shift+T", vm.Settings.Behavior.HotkeyGesture);
+        Assert.Equal("not a hotkey", vm.Settings.Behavior.HotkeyGesture);
+        Assert.True(vm.Settings.Behavior.Budget.Enabled);
+        Assert.Equal(BudgetPeriod.Month, vm.Settings.Behavior.Budget.Period);
+        Assert.Equal(new BudgetThreshold(25, 1000), vm.Settings.Behavior.Budget.For(null));
+        Assert.Equal(new BudgetThreshold(5, 400), vm.Settings.Behavior.Budget.For(Tool.Gemini));
 
         Assert.True(store.Save(vm.Settings));
         Assert.Equal(vm.Settings, store.Load());
@@ -61,7 +71,50 @@ public class SettingsTests
 
         vm.ResetProviderColors();
         Assert.Empty(vm.Settings.Appearance.ProviderColors);
-        Assert.Equal(8, changed.Count);
+        Assert.Equal(13, changed.Count);
+    }
+
+    [Fact]
+    public void Settings_view_model_rejects_chat_targets_not_for_the_provider()
+    {
+        var vm = new SettingsViewModel(new TrackSettings());
+
+        Assert.Throws<ArgumentException>(() => vm.SetChatTarget(Tool.Gemini, "copilot-app"));
+    }
+
+    [Theory]
+    [InlineData(true, "")]
+    [InlineData(true, "Ctrl+Alt")]
+    [InlineData(true, "Ctrl+Ctrl+T")]
+    [InlineData(true, "Ctrl+T+Y")]
+    public void Settings_view_model_rejects_invalid_enabled_hotkeys(bool enabled, string gesture)
+    {
+        var vm = new SettingsViewModel(new TrackSettings());
+
+        Assert.Throws<ArgumentException>(() => vm.SetHotkey(enabled, gesture));
+    }
+
+    [Fact]
+    public void Settings_view_model_rejects_nonpositive_budget_limits()
+    {
+        var vm = new SettingsViewModel(new TrackSettings());
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => vm.SetBudgetThreshold(null, new BudgetThreshold(0, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => vm.SetBudgetThreshold(null, new BudgetThreshold(1, 0)));
+        vm.SetBudgetThreshold(null, BudgetThreshold.Empty);
+    }
+
+    [Fact]
+    public void Notifications_opt_out_persists_after_restart()
+    {
+        var fs = new MockFileSystem();
+        var store = new SettingsStore(fs, Path);
+        var vm = new SettingsViewModel(new TrackSettings());
+        vm.SetNotificationsEnabled(true);
+        vm.SetNotificationsEnabled(false);
+
+        Assert.True(store.Save(vm.Settings));
+        Assert.False(store.Load().Behavior.NotificationsEnabled);
     }
 
     [Theory]
@@ -102,6 +155,41 @@ public class SettingsTests
 
         _ = empty.GetHashCode();
         _ = custom.GetHashCode();
+    }
+
+    [Fact]
+    public void Provider_and_budget_settings_compare_dictionaries_by_content()
+    {
+        var providers = new ProviderSettings().WithChatTarget(Tool.Roo, "roo-vscode");
+        var providersCopy = new ProviderSettings().WithChatTarget(Tool.Roo, "roo-vscode");
+        Assert.Equal(providers, providersCopy);
+        Assert.Equal(providers.GetHashCode(), providersCopy.GetHashCode());
+        Assert.NotEqual(new ProviderSettings(), providers);
+        Assert.Null(new ProviderSettings().ChatTargetFor(Tool.Gemini));
+
+        var budget = new BudgetSettings
+        {
+            Enabled = true,
+            Period = BudgetPeriod.Month,
+            Total = new BudgetThreshold(10, 100),
+        }.WithThreshold(Tool.Roo, new BudgetThreshold(5, 50));
+        var budgetCopy = new BudgetSettings
+        {
+            Enabled = true,
+            Period = BudgetPeriod.Month,
+            Total = new BudgetThreshold(10, 100),
+            Providers = new Dictionary<Tool, BudgetThreshold> { [Tool.Roo] = new(5, 50) },
+        };
+        Assert.Equal(budget, budgetCopy);
+        Assert.Equal(budget.GetHashCode(), budgetCopy.GetHashCode());
+        Assert.NotEqual(new BudgetSettings(), budget);
+        Assert.False(budget.Equals(null));
+        Assert.False(providers.Equals(null));
+        Assert.Equal(BudgetThreshold.Empty, new BudgetSettings().For(Tool.Roo));
+        Assert.NotEqual(budget, budget with { Period = BudgetPeriod.Day });
+        Assert.NotEqual(budget, budget with { Total = new BudgetThreshold(11, 100) });
+        Assert.NotEqual(budget, budget with { Providers = [] });
+        Assert.NotEqual(budget, budget with { Providers = new Dictionary<Tool, BudgetThreshold> { [Tool.Roo] = new(6, 50) } });
     }
 
     [Fact]
