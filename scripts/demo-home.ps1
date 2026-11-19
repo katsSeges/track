@@ -180,6 +180,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path -Parent $openCodeDb) | Out
 $openCodeScript = @'
 import sqlite3, sys
 db = sqlite3.connect(sys.argv[1])
+db.execute("DROP TABLE IF EXISTS session_message")
 db.execute("CREATE TABLE session_message (id TEXT, session_id TEXT, time_created INTEGER, type TEXT, data TEXT)")
 db.execute(
     "INSERT INTO session_message VALUES (?, ?, ?, ?, ?)",
