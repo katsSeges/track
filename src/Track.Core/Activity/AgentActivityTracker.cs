@@ -80,6 +80,14 @@ public sealed class AgentActivityTracker
         }
 
         s.SessionStart = e.At < s.SessionStart ? e.At : s.SessionStart;
+
+        // A line from before the current task (a copy, like Claude Code's compaction summary with the
+        // conversation's first time) cannot start, steer or end it: the timer never jumps back.
+        if (e.At < s.TurnStart && e.Kind != ActivityKind.ModelSeen)
+        {
+            return;
+        }
+
         switch (e.Kind)
         {
             case ActivityKind.TurnStart:

@@ -141,7 +141,9 @@ public sealed class ClaudeActivityParser(string fallbackSessionId) : IActivityPa
         var message = JsonLine.Get(root, "message");
         switch (JsonLine.String(JsonLine.Get(root, "type")))
         {
-            case "user" when JsonLine.Get(root, "isMeta") is not { ValueKind: JsonValueKind.True }:
+            // Hook text and the compaction summary (stamped with the conversation's first time) are not prompts.
+            case "user" when JsonLine.Get(root, "isMeta") is not { ValueKind: JsonValueKind.True }
+                          && JsonLine.Get(root, "isCompactSummary") is not { ValueKind: JsonValueKind.True }:
                 if (PromptText(JsonLine.Get(message, "content")) is { } text)
                 {
                     events.Add(new(Tool.Claude, session, text.StartsWith(Interrupted, StringComparison.Ordinal) ? ActivityKind.TurnEnd : ActivityKind.TurnStart, at));

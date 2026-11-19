@@ -18,12 +18,14 @@ public class ActivityParsersTests
 
         Assert.Equal([new ActivityEvent(Tool.Claude, "s1", ActivityKind.SessionStart, At), new ActivityEvent(Tool.Claude, "s1", ActivityKind.TurnStart, At)], events);
         Assert.Equal([ActivityKind.TurnStart], Kinds(p, "{\"type\":\"user\"," + T + ",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"and this\"}]}}"));
+        Assert.Equal([ActivityKind.TurnStart], Kinds(p, "{\"type\":\"user\"," + T + ",\"isMeta\":false,\"isCompactSummary\":false,\"message\":{\"content\":\"typed\"}}"));
     }
 
     [Theory]
     [InlineData("{\"type\":\"user\"," + T + ",\"message\":{\"content\":[{\"type\":\"tool_result\",\"content\":\"ok\"}]}}")]
     [InlineData("{\"type\":\"user\"," + T + ",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"x\"},{\"type\":\"tool_result\"}]}}")]
     [InlineData("{\"type\":\"user\"," + T + ",\"isMeta\":true,\"message\":{\"content\":\"hook text\"}}")]
+    [InlineData("{\"type\":\"user\"," + T + ",\"isCompactSummary\":true,\"isVisibleInTranscriptOnly\":true,\"message\":{\"content\":\"This session is being continued...\"}}")]
     [InlineData("{\"type\":\"user\"," + T + ",\"message\":{\"content\":[{\"type\":\"image\"}]}}")]
     [InlineData("{\"type\":\"user\"," + T + ",\"message\":{\"content\":{\"odd\":1}}}")]
     [InlineData("{\"type\":\"user\"," + T + ",\"message\":{}}")]
