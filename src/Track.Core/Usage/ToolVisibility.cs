@@ -1,3 +1,4 @@
+using Track.Core.Live;
 using Track.Core.Providers;
 using Track.Core.Settings;
 
@@ -107,6 +108,9 @@ public static class ToolVisibilityPolicy
 /// <summary>Applies explicit provider modes while preserving the original visibility rule for legacy providers.</summary>
 public static class ProviderVisibilityPolicy
 {
+    public static bool IsRunning(Tool tool, LiveStatus status) =>
+        ProviderCatalog.Get(tool).Capabilities.HasTokens ? status.Working : status.ProcessRunning;
+
     public static ToolVisibility Decide(
         Tool tool,
         ProviderMode mode,

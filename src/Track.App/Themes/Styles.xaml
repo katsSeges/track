@@ -29,6 +29,7 @@
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
         <Setter Property="FontSize" Value="11.5" />
         <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="Padding" Value="0,4" />
         <Setter Property="Cursor" Value="Hand" />
         <!-- WPF shows a FocusVisualStyle only after keyboard navigation, so opening the popover does not
              make an unselected tab look selected. -->
@@ -36,7 +37,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
-                    <Border x:Name="Bg" CornerRadius="5" Padding="0,4" Background="Transparent">
+                    <Border x:Name="Bg" CornerRadius="5" Padding="{TemplateBinding Padding}" Background="Transparent">
                         <ContentPresenter HorizontalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>

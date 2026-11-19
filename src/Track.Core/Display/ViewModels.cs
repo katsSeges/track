@@ -253,7 +253,7 @@ public sealed class PopoverViewModel : ObservableObject
         Visibility = Order.ToDictionary(t => t, t => ProviderVisibilityPolicy.Decide(
             t,
             _settings.Providers.ModeFor(t),
-            IsWorking(t),
+            IsRunning(t),
             _usage,
             _periods,
             _settings.Visibility));
@@ -278,7 +278,7 @@ public sealed class PopoverViewModel : ObservableObject
         Tick();
     }
 
-    private bool IsWorking(Tool tool) => _live.TryGetValue(tool, out var s) && s.Working;
+    private bool IsRunning(Tool tool) => _live.TryGetValue(tool, out var status) && ProviderVisibilityPolicy.IsRunning(tool, status);
 
     private void ToggleChart()
     {

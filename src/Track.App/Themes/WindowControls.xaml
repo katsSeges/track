@@ -219,6 +219,7 @@
 
     <Style x:Key="TrackCalendarDayButton" TargetType="{x:Type CalendarDayButton}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
+        <Setter Property="FontFamily" Value="{StaticResource Mono}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="1" />
@@ -266,6 +267,7 @@
 
     <Style x:Key="TrackCalendarButton" TargetType="{x:Type CalendarButton}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
+        <Setter Property="FontFamily" Value="{StaticResource Mono}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="1" />
@@ -303,6 +305,7 @@
     <Style x:Key="TrackCalendarItem" TargetType="{x:Type CalendarItem}">
         <Setter Property="Background" Value="{DynamicResource SurfaceElevated}" />
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
+        <Setter Property="FontFamily" Value="{StaticResource Mono}" />
         <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Margin" Value="0,3" />
@@ -313,6 +316,7 @@
                         <DataTemplate x:Key="{x:Static CalendarItem.DayTitleTemplateResourceKey}">
                             <TextBlock Text="{Binding}"
                                        Foreground="{DynamicResource Muted}"
+                                   FontFamily="{StaticResource Mono}"
                                        FontSize="10"
                                        FontWeight="SemiBold"
                                        HorizontalAlignment="Center"
@@ -609,30 +613,33 @@
 
     <Style TargetType="{x:Type TabItem}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
-        <Setter Property="Background" Value="{DynamicResource SurfaceBg}" />
-        <Setter Property="Padding" Value="14,9" />
+        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Margin" Value="1" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type TabItem}">
                     <Border x:Name="Chrome"
-                            Background="{TemplateBinding Background}"
-                            BorderBrush="{DynamicResource ControlBorder}"
-                            BorderThickness="1,1,1,2"
-                            CornerRadius="6,6,0,0"
-                            Margin="0,0,4,0">
+                            Background="Transparent"
+                            BorderBrush="Transparent"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="{TemplateBinding Padding}">
                         <ContentPresenter ContentSource="Header"
                                           HorizontalAlignment="Center"
                                           VerticalAlignment="Center"
-                                          Margin="{TemplateBinding Padding}" />
+                                          RecognizesAccessKey="True" />
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlSelected}" />
-                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlHover}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource RowBg}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SegSelected}" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Foreground" Value="{DynamicResource Muted}" />
@@ -644,7 +651,7 @@
     </Style>
 
     <Style TargetType="{x:Type TabControl}">
-        <Setter Property="Background" Value="{DynamicResource SurfaceBg}" />
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
         <Setter Property="Template">
             <Setter.Value>
@@ -654,15 +661,16 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <TabPanel Grid.Row="0" IsItemsHost="True" KeyboardNavigation.TabIndex="1" />
-                        <Border Grid.Row="1"
-                                Background="{DynamicResource SurfaceBg}"
-                                BorderBrush="{DynamicResource ControlBorder}"
-                                BorderThickness="1"
-                                CornerRadius="0,7,7,7"
-                                Padding="4">
-                            <ContentPresenter x:Name="PART_SelectedContentHost" ContentSource="SelectedContent" />
+                        <Border Grid.Row="0"
+                                Background="{DynamicResource RowBg}"
+                                CornerRadius="7"
+                                Padding="2">
+                            <TabPanel IsItemsHost="True" KeyboardNavigation.TabIndex="1" />
                         </Border>
+                        <ContentPresenter x:Name="PART_SelectedContentHost"
+                                          Grid.Row="1"
+                                          ContentSource="SelectedContent"
+                                          Margin="0,8,0,0" />
                     </Grid>
                 </ControlTemplate>
             </Setter.Value>

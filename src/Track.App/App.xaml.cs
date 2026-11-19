@@ -21,7 +21,8 @@ public partial class App : Application
 
         if (options.RenderIconsTo is { } dir)
         {
-            TrayController.RenderIcons(dir, new TrackSettings());
+            _controller = new TrayController(options, Dispatcher);
+            _controller.RenderIcons(dir);
             Shutdown();
             return;
         }

@@ -4,7 +4,9 @@ using Track.Core.Display;
 using Track.Core.Ingest;
 using Track.Core.Live;
 using Track.Core.Parsing;
+using Track.Core.Providers;
 using Track.Core.Settings;
+using Track.Core.Tray;
 using Track.Core.Usage;
 
 namespace Track.Core.Tests.Display;
@@ -183,6 +185,60 @@ public class PopoverViewModelTests
 
         vm.LiveUpdated(new Dictionary<Tool, LiveStatus> { [Tool.Ollama] = new(Tool.Ollama, false, 0, 0, true, null, Now) });
         Assert.Equal("running", Assert.Single(vm.LiveRows).Detail);
+    }
+
+    [Fact]
+    public void Running_status_only_provider_in_auto_mode_is_visible_without_token_activity()
+    {
+        var settings = new TrackSettings
+        {
+            Providers = new ProviderSettings().WithMode(Tool.Ollama, ProviderMode.Auto),
+        };
+        var vm = Create(settings);
+
+        var live = new Dictionary<Tool, LiveStatus>
+        {
+            [Tool.Ollama] = new(Tool.Ollama, false, 0, 0, true, "llama3.2:latest", Now),
+            [Tool.Claude] = new(Tool.Claude, false, 0, 0, true, null, Now),
+        };
+        vm.LiveUpdated(live);
+
+        Assert.True(vm.Visibility[Tool.Ollama].InTray);
+        Assert.Equal([Tool.Ollama], vm.ListedTools);
+        Assert.Equal("running · llama3.2:latest", Assert.Single(vm.LiveRows).Detail);
+
+        var running = TrayIconModel.RunningProviders(live);
+        Assert.Equal([Tool.Ollama], running);
+        var icon = TrayIconModel.Build(
+            vm.Visibility.Where(pair => pair.Value.InTray).Select(pair => pair.Key).ToHashSet(),
+            running,
+            IconLayout.Triangle,
+            IdleLook.GreyMark,
+            NothingRunningLook.AllGrey,
+            TaskbarTheme.Dark);
+        Assert.Equal(Tool.Ollama, Assert.Single(icon.Shapes).Tool);
+        Assert.Equal("#E4E4EA", icon.Shapes[0].Color);
+    }
+
+    [Theory]
+    [InlineData(Tool.Gemini)]
+    [InlineData(Tool.OpenCode)]
+    [InlineData(Tool.Cline)]
+    [InlineData(Tool.Roo)]
+    public void Auto_provider_with_recent_token_data_is_visible_as_a_solo_tray_mark(Tool tool)
+    {
+        Add(tool, "model", Now, input: 10);
+        var providers = ProviderCatalog.Order
+            .Aggregate(new ProviderSettings(), (settings, provider) => settings.WithMode(provider, ProviderMode.Off))
+            .WithMode(tool, ProviderMode.Auto);
+        var vm = Create(new TrackSettings { Providers = providers });
+        vm.UsageRefreshed();
+
+        var inTray = vm.Visibility.Where(pair => pair.Value.InTray).Select(pair => pair.Key).ToHashSet();
+        var icon = TrayIconModel.Build(inTray, new HashSet<Tool>(), IconLayout.Triangle, IdleLook.GreyMark, NothingRunningLook.AllGrey, TaskbarTheme.Light);
+
+        Assert.Equal([tool], inTray);
+        Assert.Equal(tool, Assert.Single(icon.Shapes).Tool);
     }
 
     [Fact]

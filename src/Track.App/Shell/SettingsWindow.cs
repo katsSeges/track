@@ -17,7 +17,7 @@ namespace Track.App.Shell;
 [ExcludeFromCodeCoverage(Justification = "WPF Settings UI; state transitions and validation are tested in Track.Core.")]
 internal sealed class SettingsWindow : Window
 {
-    private readonly Border _surface = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(18) };
+    private readonly Border _surface = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(16) };
     private SettingsViewModel _viewModel;
     private TabControl _tabs = null!;
     private TextBlock _materialNote = null!;
@@ -96,7 +96,7 @@ internal sealed class SettingsWindow : Window
     {
         var supported = Native.ApplyBackdrop(this, Dark, _viewModel.Settings.Appearance.Material);
         _surface.SetResourceReference(Border.BackgroundProperty, supported ? "PopBg" : "PopSolid");
-        _surface.SetResourceReference(Border.BorderBrushProperty, "ControlBorder");
+        _surface.SetResourceReference(Border.BorderBrushProperty, "Line");
         _materialNote.Text = supported || _viewModel.Settings.Appearance.Material == WindowMaterial.Solid
             ? "Changes apply immediately and are saved automatically."
             : "This material is not supported on this Windows version; Track is using Solid.";
@@ -120,7 +120,7 @@ internal sealed class SettingsWindow : Window
         _tabs.Items.Add(new TabItem { Header = "Behavior", Content = BehaviorTab() });
         _tabs.SetResourceReference(Control.ForegroundProperty, "Fg");
         var root = new StackPanel();
-        var title = new TextBlock { Text = "Settings", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, 0, 0, 12) };
+        var title = new TextBlock { Text = "Settings", FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, 0, 0, 10) };
         title.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
         root.Children.Add(title);
         root.Children.Add(_tabs);
@@ -189,7 +189,13 @@ internal sealed class SettingsWindow : Window
         }
 
         panel.Children.Add(colorRows);
-        var reset = new Button { Content = "Reset provider colors", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(2, 6, 0, 0) };
+        var reset = new Button
+        {
+            Content = "Reset provider colors",
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(2, 5, 0, 0),
+            Style = (Style)FindResource("LinkButton"),
+        };
         reset.Click += (_, _) => _viewModel.ResetProviderColors();
         panel.Children.Add(reset);
         return Scroll(panel);
@@ -198,13 +204,19 @@ internal sealed class SettingsWindow : Window
     private UIElement ProvidersTab()
     {
         var panel = TabPanel();
-        panel.Children.Add(SectionHeading("Providers & chat", "Auto shows providers with recent usage or live activity. On always shows a provider; Off disables scanning and display."));
+        panel.Children.Add(SectionHeading("Providers", "Auto follows recent usage or live status. On always shows the provider; Off disables scanning and display."));
+        var header = ProviderRowGrid();
+        AddGridText(header, "Provider", 0, muted: true);
+        AddGridText(header, "Display", 1, muted: true);
+        AddGridText(header, "Open chat with", 3, muted: true);
+        panel.Children.Add(header);
         var providers = ProviderCatalog.All;
         for (var index = 0; index < providers.Count; index++)
         {
             var provider = providers[index];
             var mode = _viewModel.Settings.Providers.ModeFor(provider.Id);
-            var selector = Combo(Enum.GetValues<ProviderMode>(), mode, value => _viewModel.SetProviderMode(provider.Id, value));
+            var selector = Combo(Enum.GetValues<ProviderMode>(), mode, value => _viewModel.SetProviderMode(provider.Id, value), minWidth: 0);
+            selector.ToolTip = $"{provider.Name} display mode";
             if (_providerModeSelector is null)
             {
                 _providerModeSelector = selector;
@@ -216,8 +228,9 @@ internal sealed class SettingsWindow : Window
             {
                 ItemsSource = targets.Select(target => target.Label).ToArray(),
                 SelectedItem = targets.FirstOrDefault(target => target.Id == selectedTarget)?.Label ?? targets[0].Label,
-                MinWidth = 170,
+                MinWidth = 0,
                 Padding = new Thickness(5, 3, 5, 3),
+                ToolTip = $"{provider.Name} chat target",
             };
             targetSelector.SelectionChanged += (_, _) =>
             {
@@ -227,12 +240,19 @@ internal sealed class SettingsWindow : Window
                     _viewModel.SetChatTarget(provider.Id, target.Id);
                 }
             };
-            var providerGroup = PreferenceGroup(provider.Name);
-            var fields = new StackPanel();
-            fields.Children.Add(FormRow("Display", selector));
-            fields.Children.Add(FormRow("Open chat with", targetSelector));
-            providerGroup.Children.Add(fields);
-            panel.Children.Add(providerGroup);
+            var row = ProviderRowGrid();
+            var identity = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            identity.Children.Add(new LogoIcon { Key = provider.LogoKey, Width = 14, Height = 14, Margin = new Thickness(1, 0, 8, 0) });
+            var name = new TextBlock { Text = provider.Name, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
+            name.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
+            identity.Children.Add(name);
+            Grid.SetColumn(identity, 0);
+            Grid.SetColumn(selector, 1);
+            Grid.SetColumn(targetSelector, 3);
+            row.Children.Add(identity);
+            row.Children.Add(selector);
+            row.Children.Add(targetSelector);
+            panel.Children.Add(row);
             if (index < providers.Count - 1)
             {
                 panel.Children.Add(PreferenceDivider());
@@ -246,10 +266,10 @@ internal sealed class SettingsWindow : Window
     {
         var settings = _viewModel.Settings.Behavior;
         var panel = TabPanel();
-        panel.Children.Add(SectionHeading("Behavior", "Control notifications, shortcuts and usage limits."));
+        panel.Children.Add(SectionHeading("Behavior", "Notifications, shortcut and usage limits."));
 
         var notificationGroup = PreferenceGroup("Notifications");
-        var notifications = new CheckBox { Content = "Enable notifications", IsChecked = settings.NotificationsEnabled, Margin = new Thickness(0, 0, 0, 6) };
+        var notifications = new CheckBox { Content = "Notifications", IsChecked = settings.NotificationsEnabled, Margin = new Thickness(0, 0, 0, 4), ToolTip = "Show agent-event and budget-alert notifications." };
         notifications.Checked += (_, _) => _viewModel.SetNotificationsEnabled(true);
         notifications.Unchecked += (_, _) => _viewModel.SetNotificationsEnabled(false);
         notificationGroup.Children.Add(notifications);
@@ -259,7 +279,7 @@ internal sealed class SettingsWindow : Window
 
         var gesture = new TextBox { Text = settings.HotkeyGesture, Width = 180, MaxLength = 64 };
         var hotkeyError = ErrorText();
-        var hotkey = new CheckBox { Content = "Enable global popover hotkey", IsChecked = settings.HotkeyEnabled, Margin = new Thickness(0, 0, 0, 6) };
+        var hotkey = new CheckBox { Content = "Enable global shortcut", IsChecked = settings.HotkeyEnabled, Margin = new Thickness(0, 0, 0, 4) };
         void SaveHotkey(bool enabled)
         {
             try
@@ -287,7 +307,7 @@ internal sealed class SettingsWindow : Window
         panel.Children.Add(PreferenceDivider());
 
         var budget = settings.Budget;
-        var enabled = new CheckBox { Content = "Enable spend and token alerts", IsChecked = budget.Enabled, Margin = new Thickness(0, 0, 0, 6) };
+        var enabled = new CheckBox { Content = "Budget alerts", IsChecked = budget.Enabled, Margin = new Thickness(0, 0, 0, 4) };
         enabled.Checked += (_, _) => _viewModel.SetBudgetEnabled(true);
         enabled.Unchecked += (_, _) => _viewModel.SetBudgetEnabled(false);
         var budgetGroup = PreferenceGroup("Spend and token budgets");
@@ -319,8 +339,8 @@ internal sealed class SettingsWindow : Window
         {
             Text = threshold.Spend?.ToString("0.##", CultureInfo.CurrentCulture) ?? "",
             MinWidth = 72,
-            MinHeight = 30,
-            Padding = new Thickness(8, 3, 8, 3),
+            MinHeight = 26,
+            Padding = new Thickness(7, 2, 7, 2),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             ToolTip = "Spend limit",
         };
@@ -328,8 +348,8 @@ internal sealed class SettingsWindow : Window
         {
             Text = threshold.Tokens?.ToString(CultureInfo.CurrentCulture) ?? "",
             MinWidth = 72,
-            MinHeight = 30,
-            Padding = new Thickness(8, 3, 8, 3),
+            MinHeight = 26,
+            Padding = new Thickness(7, 2, 7, 2),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             ToolTip = "Token limit",
         };
@@ -378,7 +398,7 @@ internal sealed class SettingsWindow : Window
         name.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
         Grid.SetColumn(name, 0);
         Grid.SetColumn(spend, 1);
-        Grid.SetColumn(tokens, 2);
+        Grid.SetColumn(tokens, 3);
         row.Children.Add(name);
         row.Children.Add(spend);
         row.Children.Add(tokens);
@@ -394,15 +414,16 @@ internal sealed class SettingsWindow : Window
         var header = BudgetGridRow();
         AddGridText(header, "Provider", 0, muted: true);
         AddGridText(header, "Spend", 1, muted: true);
-        AddGridText(header, "Tokens", 2, muted: true);
+        AddGridText(header, "Tokens", 3, muted: true);
         return header;
     }
 
     private static Grid BudgetGridRow()
     {
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2), MinHeight = 30 };
+        var row = new Grid { Margin = new Thickness(0, 1, 0, 1), MinHeight = 26 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         return row;
     }
@@ -423,7 +444,7 @@ internal sealed class SettingsWindow : Window
 
     private void OnSettingsChanged(object? sender, TrackSettings settings) => SettingsChanged?.Invoke(this, settings);
 
-    private static StackPanel TabPanel() => new() { Margin = new Thickness(12), Orientation = Orientation.Vertical };
+    private static StackPanel TabPanel() => new() { Margin = new Thickness(2, 0, 2, 0), Orientation = Orientation.Vertical };
 
     private static ScrollViewer Scroll(UIElement content) => new()
     {
@@ -434,8 +455,8 @@ internal sealed class SettingsWindow : Window
 
     private static UIElement SectionHeading(string title, string description)
     {
-        var panel = new StackPanel { Margin = new Thickness(2, 0, 2, 12) };
-        var heading = new TextBlock { Text = title, FontSize = 18, FontWeight = FontWeights.SemiBold };
+        var panel = new StackPanel { Margin = new Thickness(2, 0, 2, 8) };
+        var heading = new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold };
         heading.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
         var note = new TextBlock { Text = description, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
         note.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
@@ -446,15 +467,15 @@ internal sealed class SettingsWindow : Window
 
     private static TextBlock GroupHeading(string text)
     {
-        var heading = new TextBlock { Text = text, FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) };
+        var heading = new TextBlock { Text = text, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) };
         heading.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
         return heading;
     }
 
     private static Grid FormRow(string label, UIElement control)
     {
-        var grid = new Grid { Margin = new Thickness(0, 5, 0, 5) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(135) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
         text.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
@@ -479,9 +500,19 @@ internal sealed class SettingsWindow : Window
         return label;
     }
 
-    private static ComboBox Combo<T>(IEnumerable<T> values, T selected, Action<T> changed)
+    private static Grid ProviderRowGrid()
     {
-        var combo = new ComboBox { ItemsSource = values, SelectedItem = selected, MinWidth = 170, Padding = new Thickness(5, 3, 5, 3) };
+        var row = new Grid { Margin = new Thickness(2, 2, 2, 2), MinHeight = 30 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.85, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.7, GridUnitType.Star) });
+        return row;
+    }
+
+    private static ComboBox Combo<T>(IEnumerable<T> values, T selected, Action<T> changed, double minWidth = 170)
+    {
+        var combo = new ComboBox { ItemsSource = values, SelectedItem = selected, MinWidth = minWidth, Padding = new Thickness(5, 3, 5, 3) };
         combo.SelectionChanged += (_, _) =>
         {
             if (combo.SelectedItem is T value)

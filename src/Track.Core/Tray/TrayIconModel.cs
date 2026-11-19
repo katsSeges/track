@@ -1,6 +1,8 @@
 using System.Globalization;
+using Track.Core.Live;
 using Track.Core.Providers;
 using Track.Core.Settings;
+using Track.Core.Usage;
 
 namespace Track.Core.Tray;
 
@@ -55,6 +57,11 @@ public static class TrayIconModel
 
     /// <summary>The taskbar's text color, used for idle marks.</summary>
     public static string Ink(TaskbarTheme theme) => theme == TaskbarTheme.Light ? "#222222" : "#E6E6E6";
+
+    public static IReadOnlySet<Tool> RunningProviders(IReadOnlyDictionary<Tool, LiveStatus> live) =>
+        live.Where(pair => ProviderVisibilityPolicy.IsRunning(pair.Key, pair.Value))
+            .Select(pair => pair.Key)
+            .ToHashSet();
 
     /// <param name="inTray">Tools that earned a tray spot (visibility rule).</param>
     /// <param name="running">Tools working right now.</param>

@@ -21,12 +21,14 @@ internal sealed class AnalyticsWindow : Window
     private readonly AnalyticsBuilder _builder;
     private readonly Func<AnalyticsRange, IEnumerable<Tool>, AnalyticsData> _build;
     private readonly Func<IReadOnlyList<Tool>> _visibleProviders;
-    private readonly Border _surface = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(18) };
-    private readonly ComboBox _preset = new() { Width = 130, Margin = new Thickness(0, 0, 8, 0) };
+    private readonly Border _surface = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(16) };
+    private readonly StackPanel _rangeSelector = new() { Orientation = Orientation.Horizontal };
+    private readonly StackPanel _dateControls = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 2) };
+    private readonly List<RadioButton> _rangeOptions = [];
     private readonly TextBlock _startLabel = new() { Text = "From", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), FontSize = 11 };
-    private readonly DatePicker _start = new() { Width = 150, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Start date" };
+    private readonly DatePicker _start = new() { Width = 150, FontSize = 10, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Start date" };
     private readonly TextBlock _endLabel = new() { Text = "To", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), FontSize = 11 };
-    private readonly DatePicker _end = new() { Width = 150, Margin = new Thickness(0, 0, 8, 0), ToolTip = "End date" };
+    private readonly DatePicker _end = new() { Width = 150, FontSize = 10, Margin = new Thickness(0, 0, 8, 0), ToolTip = "End date" };
     private readonly TextBlock _status = new() { Margin = new Thickness(0, 4, 0, 6), FontSize = 11 };
     private readonly StackPanel _content = new();
     private readonly AnalyticsChart _tokenChart = new(AnalyticsChartMetric.Tokens);
@@ -35,6 +37,7 @@ internal sealed class AnalyticsWindow : Window
     private AnalyticsData? _data;
     private bool _dark;
     private WindowMaterial _material;
+    private int _selectedPreset;
 
     public AnalyticsWindow(
         AnalyticsBuilder builder,
@@ -85,7 +88,7 @@ internal sealed class AnalyticsWindow : Window
     {
         var supported = Native.ApplyBackdrop(this, _dark, _material);
         _surface.SetResourceReference(Border.BackgroundProperty, supported ? "PopBg" : "PopSolid");
-        _surface.SetResourceReference(Border.BorderBrushProperty, "ControlBorder");
+        _surface.SetResourceReference(Border.BorderBrushProperty, "Line");
     }
 
     public void PrepareForRender()
@@ -98,18 +101,15 @@ internal sealed class AnalyticsWindow : Window
         }
     }
 
-    public void SavePresetDropdownForRender(string path)
+    public void SaveRangeSelectorForRender(string path)
     {
-        _preset.ApplyTemplate();
-        _preset.IsDropDownOpen = true;
-        UpdateLayout();
-        SavePopupForRender(_preset, path);
-        _preset.IsDropDownOpen = false;
+        SaveElement(_rangeSelector, path);
     }
 
     public void SaveCustomRangeForRender(string windowPath, string calendarPath)
     {
-        _preset.SelectedIndex = 3;
+        _selectedPreset = 3;
+        _rangeOptions[_selectedPreset].IsChecked = true;
         UpdateDateInputs();
         UpdateLayout();
         SaveWindowForRender(windowPath);
@@ -130,32 +130,60 @@ internal sealed class AnalyticsWindow : Window
 
     private void BuildContent()
     {
-        _preset.Items.Add("Last 7 days");
-        _preset.Items.Add("Last 30 days");
-        _preset.Items.Add("Last 90 days");
-        _preset.Items.Add("Custom");
-        _preset.SelectedIndex = 0;
-        _preset.SelectionChanged += (_, _) => UpdateDateInputs();
+        var labels = new[] { "7 days", "30 days", "90 days", "Custom" };
+        for (var index = 0; index < labels.Length; index++)
+        {
+            var selected = index;
+            var option = new RadioButton
+            {
+                Content = labels[index],
+                GroupName = "AnalyticsRange",
+                IsChecked = index == _selectedPreset,
+                Style = (Style)FindResource("Segment"),
+                Padding = new Thickness(9, 4, 9, 4),
+                ToolTip = index == 3 ? "Choose a custom date range" : $"Show the last {labels[index]}",
+            };
+            option.Checked += (_, _) =>
+            {
+                _selectedPreset = selected;
+                UpdateDateInputs();
+            };
+            _rangeOptions.Add(option);
+            _rangeSelector.Children.Add(option);
+        }
+
+        var rangeGroup = new Border { CornerRadius = new CornerRadius(7), Padding = new Thickness(2) };
+        rangeGroup.SetResourceReference(Border.BackgroundProperty, "RowBg");
+        rangeGroup.Child = _rangeSelector;
         var apply = new Button { Content = "Apply range", Padding = new Thickness(10, 4, 10, 4) };
+        apply.SetResourceReference(Control.StyleProperty, "TrackPrimaryButton");
         apply.Click += (_, _) => ApplyRange();
-        var export = new Button { Content = "Export CSV…", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(8, 0, 0, 0) };
+        var export = new Button { Content = "Export CSV…", Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(8, 0, 0, 0) };
+        export.SetResourceReference(Control.StyleProperty, "LinkButton");
         export.Click += (_, _) => ExportCsv();
-        var rangeControls = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 4) };
-        rangeControls.Children.Add(_preset);
-        rangeControls.Children.Add(_startLabel);
-        rangeControls.Children.Add(_start);
-        rangeControls.Children.Add(_endLabel);
-        rangeControls.Children.Add(_end);
-        rangeControls.Children.Add(apply);
-        rangeControls.Children.Add(export);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        actions.Children.Add(apply);
+        actions.Children.Add(export);
+        var rangeControls = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+        rangeControls.Children.Add(rangeGroup);
+        rangeControls.Children.Add(actions);
+        _dateControls.Children.Add(_startLabel);
+        _dateControls.Children.Add(_start);
+        _dateControls.Children.Add(_endLabel);
+        _dateControls.Children.Add(_end);
+        _start.SetResourceReference(Control.FontFamilyProperty, "Mono");
+        _end.SetResourceReference(Control.FontFamilyProperty, "Mono");
+        _status.SetResourceReference(TextBlock.FontFamilyProperty, "Mono");
+        _status.FontSize = 10;
 
         var root = new StackPanel();
         var title = new DockPanel();
-        var heading = new TextBlock { Text = "Analytics", FontSize = 22, FontWeight = FontWeights.SemiBold };
+        var heading = new TextBlock { Text = "Analytics", FontSize = 18, FontWeight = FontWeights.SemiBold };
         heading.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
         title.Children.Add(heading);
         root.Children.Add(title);
         root.Children.Add(rangeControls);
+        root.Children.Add(_dateControls);
         root.Children.Add(_status);
         root.Children.Add(_content);
         root.SetResourceReference(Control.ForegroundProperty, "Fg");
@@ -205,29 +233,49 @@ internal sealed class AnalyticsWindow : Window
     private UIElement SummaryRow(AnalyticsData data)
     {
         var row = new UniformGrid { Columns = 5, Margin = new Thickness(0, 8, 0, 8) };
-        row.Children.Add(SummaryCard("Tokens", Format.Tokens(data.Total.Tokens.Total)));
-        row.Children.Add(SummaryCard("Estimated cost", Format.Cost(data.Total)));
-        row.Children.Add(SummaryCard("Cache hit rate", data.CacheHitRate is { } hit ? hit.ToString("P1", CultureInfo.InvariantCulture) : "—"));
-        row.Children.Add(SummaryCard("Sessions", data.SessionCount.ToString(CultureInfo.InvariantCulture)));
-        row.Children.Add(SummaryCard("Median observed span", FormatSpan(data.MedianObservedSpan)));
+        var cards = new[]
+        {
+            SummaryCard("Tokens", Format.Tokens(data.Total.Tokens.Total)),
+            SummaryCard("Estimated cost", Format.Cost(data.Total)),
+            SummaryCard("Cache hit rate", data.CacheHitRate is { } hit ? hit.ToString("P1", CultureInfo.InvariantCulture) : "—"),
+            SummaryCard("Sessions", data.SessionCount.ToString(CultureInfo.InvariantCulture)),
+            SummaryCard("Median observed span", FormatSpan(data.MedianObservedSpan)),
+        };
+        for (var index = 0; index < cards.Length; index++)
+        {
+            var item = new Border { Child = cards[index], BorderThickness = index == 0 ? new Thickness(0) : new Thickness(1, 0, 0, 0) };
+            item.SetResourceReference(Border.BorderBrushProperty, "Line");
+            row.Children.Add(item);
+        }
+
         return row;
     }
 
     private static UIElement SummaryCard(string label, string value)
     {
-        var panel = new StackPanel { Margin = new Thickness(4), MinWidth = 110 };
-        panel.Children.Add(new TextBlock { Text = label, FontSize = 10, TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(new TextBlock { Text = value, FontSize = 17, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 0) });
+        var panel = new StackPanel { Margin = new Thickness(8, 4, 8, 4), MinWidth = 110 };
+        var heading = new TextBlock { Text = label, FontSize = 10, TextWrapping = TextWrapping.Wrap };
+        heading.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        heading.SetResourceReference(TextBlock.FontFamilyProperty, "Mono");
+        panel.Children.Add(heading);
+        var metric = new TextBlock { Text = value, FontSize = 13, FontWeight = FontWeights.Medium, Margin = new Thickness(0, 2, 0, 0) };
+        metric.SetResourceReference(TextBlock.FontFamilyProperty, "Mono");
+        panel.Children.Add(metric);
         return panel;
     }
 
-    private static TextBlock SectionTitle(string text) => new()
+    private TextBlock SectionTitle(string text)
     {
-        Text = text,
-        FontSize = 14,
-        FontWeight = FontWeights.SemiBold,
-        Margin = new Thickness(2, 14, 0, 3),
-    };
+        var title = new TextBlock
+        {
+            Text = text,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(2, 9, 0, 4),
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
+        return title;
+    }
 
     private UIElement ModelRows(AnalyticsData data)
     {
@@ -355,23 +403,34 @@ internal sealed class AnalyticsWindow : Window
             var text = new TextBlock
             {
                 Text = values[index],
-                FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
+                FontWeight = bold ? FontWeights.Medium : FontWeights.Normal,
+                FontSize = bold ? 10 : 11,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(4, 2, 8, 2),
+                Margin = new Thickness(5, 3, 8, 3),
                 ToolTip = values[index],
             };
+            if (bold || index >= 2)
+            {
+                text.SetResourceReference(TextBlock.FontFamilyProperty, "Mono");
+                if (bold)
+                {
+                    text.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+                }
+            }
             Grid.SetColumn(text, index);
             row.Children.Add(text);
         }
 
-        panel.Children.Add(row);
+        var line = new Border { BorderThickness = new Thickness(0, 0, 0, 1), Child = row };
+        line.SetResourceReference(Border.BorderBrushProperty, "Line");
+        panel.Children.Add(line);
     }
 
     private void ApplyRange()
     {
         try
         {
-            _range = _preset.SelectedIndex switch
+            _range = _selectedPreset switch
             {
                 0 => _builder.LastDays(7),
                 1 => _builder.LastDays(30),
@@ -390,11 +449,12 @@ internal sealed class AnalyticsWindow : Window
 
     private void UpdateDateInputs()
     {
-        var custom = _preset.SelectedIndex == 3;
+        var custom = _selectedPreset == 3;
         _startLabel.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
         _endLabel.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
         _start.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
         _end.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+        _dateControls.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
         if (custom)
         {
             if (string.IsNullOrWhiteSpace(_start.Text))

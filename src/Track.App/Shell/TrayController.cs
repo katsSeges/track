@@ -368,30 +368,119 @@ public sealed class TrayController : IDisposable
         _renderer.Dispose();
     }
 
-    /// <summary>Renders the tray icon for six running states, both taskbar themes and three sizes, then returns.</summary>
-    public static void RenderIcons(string directory, TrackSettings settings)
+    /// <summary>Renders provider scenarios through the same visibility and native drawing path used by the tray.</summary>
+    public void RenderIcons(string directory)
     {
         Directory.CreateDirectory(directory);
-        var all = ProviderCatalog.Order.ToHashSet();
-        var states = new List<(string Name, Tool[] Running)>
+
+        lock (_gate)
         {
-            ("nothing", []),
-            ("two", [Tool.Claude, Tool.Ollama]),
-            ("all", ProviderCatalog.Order.ToArray()),
-            ("overflow-running", [Tool.Gemini, Tool.Cline, Tool.Roo, Tool.Ollama]),
-        };
-        states.AddRange(ProviderCatalog.Order.Select(tool => (tool.ToString().ToLowerInvariant(), new[] { tool })));
-        foreach (var (name, running) in states)
+            _ingestor.Refresh();
+        }
+
+        _vm.UsageRefreshed();
+        _live = _liveDetector.Detect();
+        _vm.LiveUpdated(_live);
+        SaveIconScenario(directory, "runtime-current");
+
+        var originalSettings = _settings;
+        var off = originalSettings.Providers;
+        foreach (var tool in ProviderCatalog.Order)
         {
-            foreach (var theme in Enum.GetValues<TaskbarTheme>())
+            off = off.WithMode(tool, ProviderMode.Off);
+        }
+
+        var idle = ScenarioLive([], []);
+        foreach (var tool in ProviderCatalog.Order)
+        {
+            _settings = originalSettings with { Providers = off.WithMode(tool, ProviderMode.On) };
+            _vm.ApplySettings(_settings);
+            RefreshRenderUsage();
+            _live = idle;
+            _vm.LiveUpdated(_live);
+            SaveIconScenario(directory, $"solo-{tool.ToString().ToLowerInvariant()}-idle");
+
+            _live = ScenarioLive([tool], [tool]);
+            _vm.LiveUpdated(_live);
+            SaveIconScenario(directory, $"solo-{tool.ToString().ToLowerInvariant()}-running");
+
+            _settings = originalSettings with { Providers = off.WithMode(tool, ProviderMode.Auto) };
+            _vm.ApplySettings(_settings);
+            RefreshRenderUsage();
+            _live = tool == Tool.Ollama ? ScenarioLive([], [tool]) : idle;
+            _vm.LiveUpdated(_live);
+            SaveIconScenario(directory, $"auto-{tool.ToString().ToLowerInvariant()}");
+        }
+
+        var mixedModes = off
+            .WithMode(Tool.Claude, ProviderMode.On)
+            .WithMode(Tool.Copilot, ProviderMode.Auto)
+            .WithMode(Tool.Gemini, ProviderMode.Auto)
+            .WithMode(Tool.OpenCode, ProviderMode.Auto)
+            .WithMode(Tool.Cline, ProviderMode.Auto)
+            .WithMode(Tool.Roo, ProviderMode.Auto)
+            .WithMode(Tool.Ollama, ProviderMode.Auto);
+        _settings = originalSettings with { Providers = mixedModes };
+        _vm.ApplySettings(_settings);
+        RefreshRenderUsage();
+        _live = ScenarioLive([Tool.Cline], [Tool.Ollama]);
+        _vm.LiveUpdated(_live);
+        SaveIconScenario(directory, "mixed-running-idle-visibility");
+
+        _settings = originalSettings;
+        _vm.ApplySettings(_settings);
+        _live = _liveDetector.Detect();
+        _vm.LiveUpdated(_live);
+    }
+
+    private void RefreshRenderUsage()
+    {
+        lock (_gate)
+        {
+            _ingestor.Refresh();
+        }
+
+        _vm.UsageRefreshed();
+    }
+
+    private static IReadOnlyDictionary<Tool, LiveStatus> ScenarioLive(IEnumerable<Tool> working, IEnumerable<Tool> processes)
+    {
+        var active = working.ToHashSet();
+        var running = processes.ToHashSet();
+        return ProviderCatalog.Order.ToDictionary(tool => tool, tool =>
+        {
+            var isWorking = active.Contains(tool);
+            var processRunning = isWorking || running.Contains(tool);
+            return new LiveStatus(
+                tool,
+                isWorking,
+                isWorking ? 1 : 0,
+                0,
+                processRunning,
+                null,
+                processRunning ? DateTimeOffset.UtcNow : null);
+        });
+    }
+
+    private void SaveIconScenario(string directory, string name)
+    {
+        foreach (var theme in Enum.GetValues<TaskbarTheme>())
+        {
+            var spec = CreateTrayIconSpec(theme);
+            foreach (var size in new[] { 16, 24, 32 })
             {
-                var spec = TrayIconModel.Build(all, running.ToHashSet(), settings.IconLayout, settings.IdleLook, settings.NothingRunningLook, theme);
-                foreach (var size in new[] { 16, 24, 32, 96 })
-                {
-                    File.WriteAllBytes(Path.Combine(directory, $"{name}-{theme.ToString().ToLowerInvariant()}-{size}.png"), TrayIconRenderer.Png(spec, size));
-                }
+                File.WriteAllBytes(
+                    Path.Combine(directory, $"{name}-{theme.ToString().ToLowerInvariant()}-{size}.png"),
+                    TrayIconRenderer.Png(spec, size));
             }
         }
+    }
+
+    private TrayIconSpec CreateTrayIconSpec(TaskbarTheme theme)
+    {
+        var inTray = _vm.Visibility.Where(pair => pair.Value.InTray).Select(pair => pair.Key).ToHashSet();
+        var running = TrayIconModel.RunningProviders(_live).ToHashSet();
+        return TrayIconModel.Build(inTray, running, _settings.IconLayout, _settings.IdleLook, _settings.NothingRunningLook, theme);
     }
 
     /// <summary>
@@ -904,7 +993,7 @@ public sealed class TrayController : IDisposable
         window.UpdateLayout();
         var theme = dark ? "dark" : "light";
         SaveWindow(window, Path.Combine(directory, $"analytics-{theme}.png"));
-        window.SavePresetDropdownForRender(Path.Combine(directory, $"analytics-{theme}-preset-dropdown.png"));
+        window.SaveRangeSelectorForRender(Path.Combine(directory, $"analytics-{theme}-range-segments.png"));
         window.SaveCustomRangeForRender(
             Path.Combine(directory, $"analytics-{theme}-custom-range.png"),
             Path.Combine(directory, $"analytics-{theme}-calendar.png"));
@@ -1031,8 +1120,8 @@ public sealed class TrayController : IDisposable
         }
 
         var inTray = _vm.Visibility.Where(v => v.Value.InTray).Select(v => v.Key).ToHashSet();
-        var running = _live.Where(l => l.Value.Working).Select(l => l.Key).ToHashSet();
-        var spec = TrayIconModel.Build(inTray, running, _settings.IconLayout, _settings.IdleLook, _settings.NothingRunningLook, TaskbarThemeFor(_options));
+        var running = TrayIconModel.RunningProviders(_live).ToHashSet();
+        var spec = CreateTrayIconSpec(TaskbarThemeFor(_options));
         var size = TrayIconRenderer.PixelSize();
         var key = $"{spec.CacheKey}@{size}";
         if (force || key != _iconKey)
