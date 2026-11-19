@@ -1,4 +1,5 @@
 using Track.Core.Usage;
+using Track.Core.Providers;
 
 namespace Track.Core.Display;
 
@@ -24,7 +25,7 @@ public sealed record ChartViewModel(string Title, IReadOnlyList<ChartBar> Bars, 
 {
     public const double MinimumBarPixels = 1.5;
 
-    private static readonly Tool[] Order = [Tool.Claude, Tool.Codex, Tool.Copilot];
+    private static readonly Tool[] Order = ProviderCatalog.Order.ToArray();
 
     public static ChartViewModel Build(Period period, IReadOnlyList<SeriesBucket> buckets, DateTimeOffset? selectedStartUtc)
     {

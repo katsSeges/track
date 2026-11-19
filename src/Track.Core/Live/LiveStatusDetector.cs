@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using System.Text.RegularExpressions;
 using Track.Core.Ingest;
+using Track.Core.Providers;
 using Track.Core.Usage;
 
 namespace Track.Core.Live;
@@ -35,12 +36,8 @@ public sealed partial class LiveStatusDetector(
     public static readonly TimeSpan ActiveWindow = TimeSpan.FromMinutes(2);
     public static readonly TimeSpan ActivityLookback = TimeSpan.FromDays(1);
 
-    public static readonly IReadOnlyDictionary<Tool, string[]> ProcessNames = new Dictionary<Tool, string[]>
-    {
-        [Tool.Claude] = ["claude"],
-        [Tool.Codex] = ["codex"],
-        [Tool.Copilot] = ["copilot-runtime", "copilotapp_proxy", "copilot"],
-    };
+    public static readonly IReadOnlyDictionary<Tool, string[]> ProcessNames = ProviderCatalog.All
+        .ToDictionary(provider => provider.Id, provider => provider.ProcessNames.ToArray());
 
     /// <param name="recent">Log files written in the last day (from <see cref="LogScanCache"/>); scanned here when null.</param>
     public IReadOnlyDictionary<Tool, LiveStatus> Detect(IReadOnlyList<LogFile>? recent = null)

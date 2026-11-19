@@ -2,6 +2,7 @@ using Track.Core.Activity;
 using Track.Core.Display;
 using Track.Core.Ingest;
 using Track.Core.Usage;
+using Track.Core.Providers;
 
 namespace Track.Core.Island;
 
@@ -448,7 +449,7 @@ public sealed class IslandViewModel(
             string Tokens(Tool tool, Period p) => Format.Tokens(usage.Totals(tool, periods.Range(p)).Tokens.Total);
             return opened with
             {
-                Table = Enum.GetValues<Tool>()
+                Table = (listed?.Invoke() ?? ProviderCatalog.LegacyOrder)
                     .Select(t => new IslandTableRow(t, ToolNames.Display(t), Tokens(t, Period.Today), Tokens(t, Period.Week), Tokens(t, Period.Month)))
                     .ToList(),
             };
@@ -468,7 +469,7 @@ public sealed class IslandViewModel(
             return null;
         }
 
-        var tools = listed?.Invoke() ?? Enum.GetValues<Tool>();
+        var tools = listed?.Invoke() ?? ProviderCatalog.LegacyOrder;
         var content = _panel.Build(Period, tools, _selectedStartUtc, showChart: true);
         _selectedStartUtc = content.SelectedStartUtc;
         _chart = content.Chart;

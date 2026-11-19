@@ -29,6 +29,58 @@ public enum NothingRunningLook
     TrackMark,
 }
 
+public enum ProviderMode
+{
+    Auto,
+    On,
+    Off,
+}
+
+public sealed record ProviderSettings
+{
+    public ProviderMode Claude { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Codex { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Copilot { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Gemini { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode OpenCode { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Cline { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Roo { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Ollama { get; set; } = ProviderMode.Off;
+
+    public ProviderMode ModeFor(Tool tool) => tool switch
+    {
+        Tool.Claude => Claude,
+        Tool.Codex => Codex,
+        Tool.Copilot => Copilot,
+        Tool.Gemini => Gemini,
+        Tool.OpenCode => OpenCode,
+        Tool.Cline => Cline,
+        Tool.Roo => Roo,
+        Tool.Ollama => Ollama,
+        _ => throw new ArgumentOutOfRangeException(nameof(tool), tool, "Unknown tool."),
+    };
+
+    public ProviderSettings WithMode(Tool tool, ProviderMode mode) => tool switch
+    {
+        Tool.Claude => this with { Claude = mode },
+        Tool.Codex => this with { Codex = mode },
+        Tool.Copilot => this with { Copilot = mode },
+        Tool.Gemini => this with { Gemini = mode },
+        Tool.OpenCode => this with { OpenCode = mode },
+        Tool.Cline => this with { Cline = mode },
+        Tool.Roo => this with { Roo = mode },
+        Tool.Ollama => this with { Ollama = mode },
+        _ => throw new ArgumentOutOfRangeException(nameof(tool), tool, "Unknown tool."),
+    };
+}
+
 /// <summary>Everything the user can change. Defaults are the choices from mockup rounds 1–4.</summary>
 public sealed record TrackSettings
 {
@@ -47,6 +99,8 @@ public sealed record TrackSettings
     public bool RowLogos { get; set; } = true;
 
     public VisibilitySettings Visibility { get; set; } = new();
+
+    public ProviderSettings Providers { get; set; } = new();
 
     public IslandSettings Island { get; set; } = new();
 

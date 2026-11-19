@@ -1,4 +1,5 @@
 using System.Globalization;
+using Track.Core.Providers;
 using Track.Core.Settings;
 
 namespace Track.Core.Tray;
@@ -43,22 +44,14 @@ public static class TrayIconModel
 {
     public const double IdleOpacity = 0.38;
 
-    private static readonly Tool[] Order = [Tool.Claude, Tool.Codex, Tool.Copilot];
+    private static readonly Tool[] Order = ProviderCatalog.Order.ToArray();
 
     private static readonly (double X, double Y, double Size)[] Triangle = [(8, 4.1, 7.8), (3.9, 11.9, 7.8), (12.1, 11.9, 7.8)];
     private static readonly (double X, double Y, double Size)[] Row = [(2.7, 8, 5.6), (8, 8, 5.6), (13.3, 8, 5.6)];
     private static readonly (double X, double Y, double Size)[] Pair = [(4.2, 8, 8), (11.8, 8, 8)];
     private static readonly (double X, double Y, double Size)[] Single = [(8, 8, 14.5)];
 
-    public static string BrandColor(Tool tool, TaskbarTheme theme) => (tool, theme) switch
-    {
-        (Tool.Claude, TaskbarTheme.Light) => "#D97757",
-        (Tool.Claude, _) => "#E08560",
-        (Tool.Codex, TaskbarTheme.Light) => "#2B2B2E",
-        (Tool.Codex, _) => "#E4E4EA",
-        (Tool.Copilot, TaskbarTheme.Light) => "#7A4FD6",
-        _ => "#A98BFF",
-    };
+    public static string BrandColor(Tool tool, TaskbarTheme theme) => ProviderCatalog.Get(tool).Colors.For(theme);
 
     /// <summary>The taskbar's text color, used for idle marks.</summary>
     public static string Ink(TaskbarTheme theme) => theme == TaskbarTheme.Light ? "#222222" : "#E6E6E6";

@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Track.Core.Ingest;
 using Track.Core.Live;
+using Track.Core.Providers;
 using Track.Core.Settings;
 using Track.Core.Usage;
 
@@ -64,7 +65,7 @@ public sealed record ModelBreakdownViewModel(Tool Tool, string ToolName, string 
 /// <summary>Everything the popover shows. Plain .NET: the WPF shell only binds to it.</summary>
 public sealed class PopoverViewModel : ObservableObject
 {
-    private static readonly Tool[] Order = [Tool.Claude, Tool.Codex, Tool.Copilot];
+    private static readonly Tool[] Order = ProviderCatalog.Order.ToArray();
 
     private readonly UsageAggregator _usage;
     private readonly UsagePanelBuilder _panel;
@@ -182,7 +183,7 @@ public sealed class PopoverViewModel : ObservableObject
 
     /// <summary>Shown instead of the table when no tool is listed.</summary>
     public string? EmptyText => Rows.Count == 0
-        ? $"No Claude Code, Codex or Copilot usage in the last {_settings.Visibility.RemoveAfterNoUsageDays} days."
+        ? $"No {string.Join(", ", ProviderCatalog.LegacyOrder.Take(2).Select(ToolNames.Display))} or {ToolNames.Display(ProviderCatalog.LegacyOrder[^1])} usage in the last {_settings.Visibility.RemoveAfterNoUsageDays} days."
         : null;
 
     public string UpdatedText { get => _updatedText; private set => Set(ref _updatedText, value); }
@@ -244,7 +245,13 @@ public sealed class PopoverViewModel : ObservableObject
 
     private void Rebuild()
     {
-        Visibility = Order.ToDictionary(t => t, t => ToolVisibilityPolicy.Decide(t, IsWorking(t), _usage, _periods, _settings.Visibility));
+        Visibility = Order.ToDictionary(t => t, t => ProviderVisibilityPolicy.Decide(
+            t,
+            _settings.Providers.ModeFor(t),
+            IsWorking(t),
+            _usage,
+            _periods,
+            _settings.Visibility));
         var listed = Order.Where(t => Visibility[t].InPopover).ToList();
         ListedTools = listed;
 

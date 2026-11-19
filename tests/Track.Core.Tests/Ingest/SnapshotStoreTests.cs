@@ -72,6 +72,34 @@ public class SnapshotStoreTests
         Assert.Null(new SnapshotStore(new MockFileSystem(), Path).Load());
     }
 
+    [Fact]
+    public void A_legacy_v1_snapshot_loads_unchanged_and_ignores_unknown_properties()
+    {
+        const string legacy = """
+            {"version":1,"savedUtc":"2026-11-18T12:00:00Z",
+             "buckets":[{"tool":"Codex","model":"gpt-5.1","hourUtc":"2026-11-18T11:00:00Z","tokens":{"input":10,"cacheWrite":2,"cacheRead":3,"output":4,"reasoning":1,"calls":1}}],
+             "sessions":[{"tool":"Claude","sessionId":"session-a","usage":{"tokens":{"input":5,"cacheWrite":1,"cacheRead":2,"output":3,"reasoning":0,"calls":1},"firstUtc":"2026-11-18T11:00:00Z","lastUtc":"2026-11-18T12:00:00Z"}}],
+             "cursors":[],"futureProperty":"ignored"}
+            """;
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(legacy) });
+
+        var loaded = new SnapshotStore(fs, Path).Load()!;
+
+        Assert.Equal(1, loaded.Version);
+        Assert.Equal(new TokenCounts(10, 2, 3, 4, 1, 1), Assert.Single(loaded.Buckets).Tokens);
+        Assert.Equal("session-a", Assert.Single(loaded.Sessions).SessionId);
+        Assert.Equal(new TokenCounts(5, 1, 2, 3, 0, 1), loaded.Sessions[0].Usage.Tokens);
+    }
+
+    [Fact]
+    public void An_unknown_enum_value_in_a_snapshot_keeps_the_existing_reread_fallback()
+    {
+        const string content = """{"version":1,"savedUtc":"2026-11-18T12:00:00Z","buckets":[{"tool":"FutureTool","model":"m","hourUtc":"2026-11-18T11:00:00Z","tokens":{"input":1,"cacheWrite":0,"cacheRead":0,"output":0,"reasoning":0,"calls":1}}],"sessions":[],"cursors":[]}""";
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(content) });
+
+        Assert.Null(new SnapshotStore(fs, Path).Load());
+    }
+
     [Theory]
     [InlineData(typeof(IOException))]
     [InlineData(typeof(UnauthorizedAccessException))]

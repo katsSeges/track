@@ -1,3 +1,6 @@
+using Track.Core.Providers;
+using Track.Core.Settings;
+
 namespace Track.Core.Usage;
 
 public enum TrayRule
@@ -49,6 +52,12 @@ public enum VisibilityReason
 
     /// <summary>No usage in the window and not running: hidden everywhere.</summary>
     NoUsage,
+
+    /// <summary>The provider is explicitly disabled.</summary>
+    Disabled,
+
+    /// <summary>The provider is explicitly enabled.</summary>
+    AlwaysOn,
 }
 
 public sealed record ToolVisibility(bool InTray, bool InPopover, VisibilityReason Reason);
@@ -92,5 +101,45 @@ public static class ToolVisibilityPolicy
         }
 
         return Decide(week, month, Tokens(periods.LastDays(settings.RemoveAfterNoUsageDays)) > 0, running, settings);
+    }
+}
+
+/// <summary>Applies explicit provider modes while preserving the original visibility rule for legacy providers.</summary>
+public static class ProviderVisibilityPolicy
+{
+    public static ToolVisibility Decide(
+        Tool tool,
+        ProviderMode mode,
+        bool running,
+        UsageAggregator usage,
+        PeriodCalculator periods,
+        VisibilitySettings visibility)
+    {
+        if (mode == ProviderMode.Off)
+        {
+            return new ToolVisibility(false, false, VisibilityReason.Disabled);
+        }
+
+        if (mode == ProviderMode.On)
+        {
+            return new ToolVisibility(true, true, VisibilityReason.AlwaysOn);
+        }
+
+        if (mode != ProviderMode.Auto)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown provider mode.");
+        }
+
+        var hasRecentUsage = usage.Totals(tool, periods.LastDays(visibility.RemoveAfterNoUsageDays)).Tokens.Total > 0;
+        if (ProviderCatalog.Get(tool).UsesLegacyVisibility)
+        {
+            return ToolVisibilityPolicy.Decide(tool, running, usage, periods, visibility);
+        }
+
+        return hasRecentUsage
+            ? new ToolVisibility(true, true, VisibilityReason.Used)
+            : running
+                ? new ToolVisibility(true, true, VisibilityReason.NoUsageButRunning)
+                : new ToolVisibility(false, false, VisibilityReason.NoUsage);
     }
 }

@@ -62,6 +62,32 @@ public class SettingsTests
     }
 
     [Fact]
+    public void A_legacy_1_1_settings_file_loads_and_ignores_unknown_properties()
+    {
+        const string legacy = """{"startWithWindows":false,"lastPeriod":"Week","iconLayout":"Row","visibility":{"trayLimitWeek":42},"futureProperty":"ignored"}""";
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(legacy) });
+
+        var loaded = new SettingsStore(fs, Path).Load();
+
+        Assert.False(loaded.StartWithWindows);
+        Assert.Equal(Period.Week, loaded.LastPeriod);
+        Assert.Equal(IconLayout.Row, loaded.IconLayout);
+        Assert.Equal(42, loaded.Visibility.TrayLimitWeek);
+        Assert.Equal(ProviderMode.Auto, loaded.Providers.ModeFor(Tool.Claude));
+        Assert.Equal(ProviderMode.Auto, loaded.Providers.ModeFor(Tool.Gemini));
+        Assert.Equal(ProviderMode.Off, loaded.Providers.ModeFor(Tool.Ollama));
+    }
+
+    [Fact]
+    public void An_unknown_enum_value_uses_the_existing_whole_file_default_fallback()
+    {
+        const string content = """{"startWithWindows":false,"providers":{"gemini":"future-mode"}}""";
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(content) });
+
+        Assert.Equal(new TrackSettings(), new SettingsStore(fs, Path).Load());
+    }
+
+    [Fact]
     public void A_missing_file_gives_defaults()
     {
         Assert.Equal(new TrackSettings(), new SettingsStore(new MockFileSystem(), Path).Load());

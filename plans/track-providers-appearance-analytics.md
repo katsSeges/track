@@ -3,7 +3,7 @@
 ## Readiness and handoff
 
 - Readiness: **Approved** (user, 2026-11-19, in the coordinating Project: "Yes, write the plan and start implementation"; also asked "When you are done, make a PR to the original repo with information, before and after images").
-- Execution progress: In progress
+- Execution progress: Phase 1 complete; Phases 2–7 not started
 - Planning depth: **Standard**. Many components, plus public file-format compatibility for `settings.json` and `snapshot.json`. No server or data-loss migration.
 - Scope of approval: implement everything in this plan in `oliverseges/trackAI`, then open **one** PR (separate commits per phase) from the fork to `katsSeges/track` `main`. No tag or release.
 - Current context: fork `oliverseges/trackAI` at `6a79970` (1.1.0). The upstream is `katsSeges/track` (user has READ access, so the PR is cross-fork).
@@ -144,8 +144,10 @@ Each phase ends with `scripts\test.ps1` green (100 % gate) and one commit. Commi
 ### Phase 0: Branch and baseline images. Status: Complete
 - [x] T-0: Use the existing app-managed branch, and add this plan as `plans/track-providers-appearance-analytics.md`. Build a demo home with the generator used for the README if one exists. Otherwise create a deterministic fake-log generator script (`scripts\demo-home.ps1`). Render the **before** images with the 1.1.0 build (`--render-popover`, `--render-island`, `--theme light|dark`) into `docs/images/pr/before/`.
 
-### Phase 1: Provider catalog (no behavior change). Status: Not started
-- [ ] T-1: Add `ProviderCatalog`, move the order, colors, process names and sources there, and extend the enum. Add `Providers` settings with `ProviderMode` and the D-3 visibility wrapper. Add a test that 1.1.0 settings and snapshot files still load (AC-6). Covers AC-3 and AC-6.
+### Phase 1: Provider catalog (no behavior change). Status: Complete
+- [x] T-1: Add `ProviderCatalog`, move the order, colors, process names and sources there, and extend the enum. Add `Providers` settings with `ProviderMode` and the D-3 visibility wrapper. Add a test that 1.1.0 settings and snapshot files still load (AC-6). Covers AC-3 and AC-6.
+
+**Phase Summary:** Added a canonical eight-provider catalog, preserved the existing three providers' order, colors, process names, sources, visibility, and default island rows, and added per-provider Auto/On/Off settings (Ollama Off). New providers remain Auto and have no token parser/source until T-2a establishes them. Snapshot version remains 1. Serializer compatibility tests use synthetic v1.1.0-shaped fixtures: missing settings properties retain defaults, unknown properties are ignored, unknown enum values trigger the existing whole-file settings default or snapshot-reread fallback.
 
 ### Phase 2: New providers. Status: Not started
 - [ ] T-2a (spike, time-boxed): Record U-1 findings in the plan for Gemini CLI, OpenCode, Cline and Roo. Decision rule: if a provider has token fields, implement a full parser. Otherwise, make it status-only.
@@ -203,6 +205,7 @@ Each phase ends with `scripts\test.ps1` green (100 % gate) and one commit. Commi
 | --- | --- | --- | --- |
 | 2026-11-19 | Plan audit | Corrected top-session range semantics, distinguished missing/unknown JSON fields and enum values, required additive or migrating snapshot persistence, clarified render-vs-native-material verification, and prohibited shell interpolation of log-derived model IDs. | Evidence-driven coordinator review; implementation paths remain proposals. |
 | 2026-11-19 | T-0 | Copied the plan, added `scripts/demo-home.ps1` to write made-up Claude/Codex/Copilot logs, built commit `6a79970` successfully, and rendered 27 baseline PNGs in `docs/images/pr/before/` using that demo home. Viewed the light/dark popover and opened island renders to confirm them. | Reused the app-managed branch rather than creating a second branch. Render PNGs use Track's solid fallback and are illustrative, not proof of native acrylic. |
+| 2026-11-19 | T-1 | Added `ProviderCatalog`, provider enum values/settings, metadata-based log/process/color/order lookup, provider visibility modes, and v1.1-shaped compatibility tests. `dotnet build Track.slnx -c Release --no-restore` succeeded; `scripts\test.ps1` passed 513 tests at 100% line/branch/method coverage. | The compatibility fixtures are synthetic legacy-format fixtures based on the 1.1.0 serializer; no actual user settings or snapshot were read. New provider log sources remain intentionally empty pending T-2a. |
 
 ## Resume instructions
 
