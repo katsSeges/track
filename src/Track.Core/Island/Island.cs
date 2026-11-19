@@ -177,7 +177,7 @@ public sealed class IslandStateMachine(TimeProvider time, Func<IslandSettings> s
         var finished = _working.FirstOrDefault(w => !stillWorking.Contains((w.Tool, w.SessionId)));
         if (finished is not null && settings().ShowDone)
         {
-            Finished = new FinishedTask(finished.Tool, now - finished.TurnStartedUtc, waiting?.Contains((finished.Tool, finished.SessionId)) == true);
+            Finished = new FinishedTask(finished.Tool, (finished.TurnEndedUtc ?? now) - finished.TurnStartedUtc, waiting?.Contains((finished.Tool, finished.SessionId)) == true);
             _doneUntil = now + DoneFor;
         }
 
@@ -264,8 +264,18 @@ public sealed class IslandStateMachine(TimeProvider time, Func<IslandSettings> s
     }
 }
 
-/// <summary>One agent row of the opened island.</summary>
-public sealed record IslandAgentRow(Tool Tool, string Name, string Detail, string TaskTimer, string SessionTimer);
+/// <summary>One agent row of the opened island, with its sub-agents (round 6) under it.</summary>
+public sealed record IslandAgentRow(Tool Tool, string Name, string Detail, string TaskTimer, string SessionTimer, IReadOnlyList<IslandSubAgentRow>? SubAgents = null)
+{
+    public IReadOnlyList<IslandSubAgentRow> Subs => SubAgents ?? [];
+}
+
+/// <summary>
+/// A sub-agent row under its agent (round 6): name, task, <c>model · 1.2M tokens</c> and its run time, or
+/// <c>done 4:05</c> once finished (shown dimmed until its agent leaves). <paramref name="Depth"/> 1 sits under the
+/// agent, 2 under a sub-agent, and so on.
+/// </summary>
+public sealed record IslandSubAgentRow(Tool Tool, string Name, string? Task, string? Meta, string Timer, bool Running, int Depth);
 
 /// <summary>A tool line in the opened island's "full" table: today, week and month tokens.</summary>
 public sealed record IslandTableRow(Tool Tool, string Name, string Today, string Week, string Month);
@@ -288,7 +298,8 @@ public sealed record IslandContent(
     bool CanMinimize = false,
     IslandTab Tab = IslandTab.Now,
     UsagePanelContent? Usage = null,
-    bool NeedsYou = false);
+    bool NeedsYou = false,
+    int SubAgentDots = 0);
 
 /// <summary>Builds <see cref="IslandContent"/> from the state machine, usage and settings.</summary>
 /// <param name="listed">Tools the usage table lists (the popover's visibility rule), so both show the same rows; all tools when null.</param>
@@ -396,7 +407,8 @@ public sealed class IslandViewModel(
     {
         MainTool = agent.Tool,
         Logos = [agent.Tool],
-        MainText = Format.Timer(now - (s.TimerFrom == IslandTimerFrom.Turn ? agent.TurnStartedUtc : agent.SessionStartedUtc)),
+        MainText = Format.Timer(s.TimerFrom == IslandTimerFrom.Turn ? TaskTime(agent, now) : now - agent.SessionStartedUtc),
+        SubAgentDots = Math.Min(MaxDots, agent.Subs.Count(x => x.Running)),
         MainExtra = s.Compact switch
         {
             IslandCompact.Tokens => Format.Tokens(SessionTokens(agent)),
@@ -412,8 +424,9 @@ public sealed class IslandViewModel(
             w.Tool,
             ToolNames.Display(w.Tool),
             $"{w.Model ?? "model unknown"} · {Format.Tokens(SessionTokens(w))} this session",
-            Format.Timer(now - w.TurnStartedUtc),
-            "session " + Format.Timer(now - w.SessionStartedUtc))).ToList();
+            Format.Timer(TaskTime(w, now)),
+            "session " + Format.Timer(now - w.SessionStartedUtc),
+            SubRows(w, now))).ToList();
 
         var opened = empty with
         {
@@ -462,6 +475,37 @@ public sealed class IslandViewModel(
         return content;
     }
 
+    /// <summary>The compact pill shows one dot per running sub-agent, at most this many.</summary>
+    public const int MaxDots = 4;
+
+    /// <summary>The agent's task time; it stops when its own turn ended while sub-agents still run.</summary>
+    private static TimeSpan TaskTime(AgentActivity agent, DateTimeOffset now) => (agent.TurnEndedUtc ?? now) - agent.TurnStartedUtc;
+
+    private static IReadOnlyList<IslandSubAgentRow>? SubRows(AgentActivity agent, DateTimeOffset now)
+    {
+        if (agent.Subs.Count == 0)
+        {
+            return null;
+        }
+
+        return agent.Subs.Select(x =>
+        {
+            var meta = string.Join(" · ", new[] { x.Model, x.Tokens > 0 ? $"{Format.Tokens(x.Tokens)} tokens" : null }.OfType<string>());
+            return new IslandSubAgentRow(
+                x.Tool,
+                x.Name ?? "sub-agent",
+                x.Task,
+                meta.Length > 0 ? meta : null,
+                x.EndedUtc is { } end ? "done " + Format.Timer(end - x.StartedUtc) : Format.Timer(now - x.StartedUtc),
+                x.Running,
+                x.Depth);
+        }).ToList();
+    }
+
+    /// <summary>The whole session's tokens: its own log, plus sub-agents with their own session (Codex), whose usage is kept apart.</summary>
     private long SessionTokens(AgentActivity agent) =>
+        OwnSessionTokens(agent) + agent.Subs.Where(x => x.OwnSession).Sum(x => store.Sessions.TryGetValue(new SessionKey(agent.Tool, x.Id), out var sub) ? sub.Tokens.Total : 0);
+
+    private long OwnSessionTokens(AgentActivity agent) =>
         store.Sessions.TryGetValue(new SessionKey(agent.Tool, agent.SessionId), out var session) ? session.Tokens.Total : 0;
 }

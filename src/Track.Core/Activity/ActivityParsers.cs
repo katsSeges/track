@@ -31,9 +31,44 @@ public enum ActivityKind
 
     /// <summary>A model name was seen.</summary>
     ModelSeen,
+
+    /// <summary>A sub-agent started, or a finished one was given more work (<see cref="ActivityEvent.Sub"/>).</summary>
+    SubAgentStart,
+
+    /// <summary>A step of a sub-agent ended; it is done unless another step follows within the grace period.</summary>
+    SubAgentStepEnd,
+
+    /// <summary>A sub-agent finished.</summary>
+    SubAgentEnd,
+
+    /// <summary>A sub-agent used tokens (<see cref="SubAgent.Tokens"/>, added up).</summary>
+    SubAgentTokens,
+
+    /// <summary>Facts about a sub-agent (name, task, model, parent); does not start it.</summary>
+    SubAgentInfo,
+
+    /// <summary>A sub-agent launched another one through the tool call <see cref="SubAgent.LaunchId"/> (Claude Code nesting).</summary>
+    SubAgentLaunch,
 }
 
-public sealed record ActivityEvent(Tool Tool, string SessionId, ActivityKind Kind, DateTimeOffset At, string? Model = null);
+/// <summary>A sub-agent fact carried by a sub-agent event. Null fields mean "not in this line".</summary>
+/// <param name="Id">The sub-agent's own id (Claude <c>agentId</c>, Copilot <c>agentId</c>, Codex thread id).</param>
+/// <param name="ParentId">The sub-agent that started this one, when it is nested.</param>
+/// <param name="OwnSession">It has its own session log and usage (Codex), not part of the parent's.</param>
+/// <param name="LaunchId">Claude Code: the tool call that launched it (from its meta file), or the call it made (launch events).</param>
+public sealed record SubAgent(
+    string Id,
+    string? Name = null,
+    string? Task = null,
+    string? Model = null,
+    long Tokens = 0,
+    string? ParentId = null,
+    bool OwnSession = false,
+    string? LaunchId = null);
+
+/// <param name="SessionId">The main session the event belongs to (for sub-agent events: the parent's session).</param>
+/// <param name="Sub">Set on sub-agent events only.</param>
+public sealed record ActivityEvent(Tool Tool, string SessionId, ActivityKind Kind, DateTimeOffset At, string? Model = null, SubAgent? Sub = null);
 
 /// <summary>Turns log lines of one file into work start/finish markers. One instance per file.</summary>
 public interface IActivityParser
@@ -56,10 +91,17 @@ public static class ActivityParsers
 /// Claude Code: a turn starts at a user line with text that is not a tool result or a meta line, and ends
 /// at an assistant line with <c>stop_reason: end_turn</c>, a <c>stop_hook_summary</c> line, or the
 /// "[Request interrupted by user]" line. The session starts at the file's first timestamp.
+/// <para>
+/// Sub-agent logs (<c>subagents/agent-&lt;id&gt;.jsonl</c>) carry the parent's <c>sessionId</c> with
+/// <c>isSidechain: true</c> and an <c>agentId</c>: those lines are the sub-agent's (start, tokens, launches, end)
+/// and never start or end the parent's turn (found 2026-11-19: a sub-agent's prompt restarted the parent's timer).
+/// </para>
 /// </summary>
 public sealed class ClaudeActivityParser(string fallbackSessionId) : IActivityParser
 {
     private const string Interrupted = "[Request interrupted by user";
+    private static readonly string[] LaunchTools = ["Agent", "Task"];
+    private readonly HashSet<string> _counted = new(StringComparer.Ordinal);
     private bool _started;
     private bool _modelKnown;
 
@@ -67,7 +109,8 @@ public sealed class ClaudeActivityParser(string fallbackSessionId) : IActivityPa
     {
         // Cheap pre-filter (most lines are tool calls and results): after the first line, only prompts,
         // turn ends and, until a model is known, assistant lines can matter.
-        if (_started
+        var sidechain = line.Contains("\"isSidechain\":true", StringComparison.Ordinal) || line.Contains("\"agentId\":", StringComparison.Ordinal);
+        if (_started && !sidechain
             && (!line.Contains("\"type\":\"user\"", StringComparison.Ordinal) || line.Contains("\"tool_result\"", StringComparison.Ordinal))
             && !line.Contains("end_turn", StringComparison.Ordinal)
             && !line.Contains("stop_hook_summary", StringComparison.Ordinal)
@@ -83,6 +126,11 @@ public sealed class ClaudeActivityParser(string fallbackSessionId) : IActivityPa
         }
 
         var session = JsonLine.String(JsonLine.Get(root, "sessionId")) ?? fallbackSessionId;
+        if (sidechain && JsonLine.String(JsonLine.Get(root, "agentId")) is { } agent)
+        {
+            return SubAgentLine(root, session, agent, at);
+        }
+
         var events = new List<ActivityEvent>();
         if (!_started)
         {
@@ -115,6 +163,49 @@ public sealed class ClaudeActivityParser(string fallbackSessionId) : IActivityPa
                 break;
             case "system" when JsonLine.String(JsonLine.Get(root, "subtype")) == "stop_hook_summary":
                 events.Add(new(Tool.Claude, session, ActivityKind.TurnEnd, at));
+                break;
+        }
+
+        return events;
+    }
+
+    private List<ActivityEvent> SubAgentLine(System.Text.Json.JsonElement? root, string session, string agent, DateTimeOffset at)
+    {
+        var events = new List<ActivityEvent>();
+        ActivityEvent Sub(ActivityKind kind, SubAgent sub) => new(Tool.Claude, session, kind, at, Sub: sub);
+        var message = JsonLine.Get(root, "message");
+        switch (JsonLine.String(JsonLine.Get(root, "type")))
+        {
+            case "user" when PromptText(JsonLine.Get(message, "content")) is { } text:
+                events.Add(Sub(text.StartsWith(Interrupted, StringComparison.Ordinal) ? ActivityKind.SubAgentEnd : ActivityKind.SubAgentStart, new SubAgent(agent)));
+                break;
+            case "assistant":
+                if (JsonLine.String(JsonLine.Get(message, "model")) is { } model && model != "<synthetic>")
+                {
+                    events.Add(Sub(ActivityKind.SubAgentInfo, new SubAgent(agent, Model: model)));
+                }
+
+                // A message's usage repeats on each of its content lines: count it once.
+                var usage = JsonLine.Get(message, "usage");
+                var tokens = JsonLine.Long(JsonLine.Get(usage, "input_tokens")) + JsonLine.Long(JsonLine.Get(usage, "cache_creation_input_tokens"))
+                             + JsonLine.Long(JsonLine.Get(usage, "cache_read_input_tokens")) + JsonLine.Long(JsonLine.Get(usage, "output_tokens"));
+                if (tokens > 0 && _counted.Add(JsonLine.String(JsonLine.Get(message, "id")) ?? $"{agent}@{at:O}"))
+                {
+                    events.Add(Sub(ActivityKind.SubAgentTokens, new SubAgent(agent, Tokens: tokens)));
+                }
+
+                if (JsonLine.Get(message, "content") is { ValueKind: System.Text.Json.JsonValueKind.Array } items)
+                {
+                    events.AddRange(items.EnumerateArray()
+                        .Where(i => JsonLine.String(JsonLine.Get(i, "type")) == "tool_use" && LaunchTools.Contains(JsonLine.String(JsonLine.Get(i, "name"))))
+                        .Select(i => Sub(ActivityKind.SubAgentLaunch, new SubAgent(agent, LaunchId: JsonLine.String(JsonLine.Get(i, "id"))))));
+                }
+
+                if (JsonLine.String(JsonLine.Get(message, "stop_reason")) == "end_turn")
+                {
+                    events.Add(Sub(ActivityKind.SubAgentEnd, new SubAgent(agent)));
+                }
+
                 break;
         }
 
@@ -156,9 +247,30 @@ public sealed class CodexActivityParser(string fallbackSessionId) : IActivityPar
     private static readonly string[] Markers = ["session_meta", "turn_context", "task_started", "task_complete", "turn_aborted"];
     private string _session = fallbackSessionId;
 
+    /// <summary>
+    /// Set when this log is a spawned sub-agent thread (<c>source.subagent.thread_spawn</c>): its events go to the
+    /// parent thread as sub-agent events, so it never shows as a top-level agent.
+    /// </summary>
+    private string? _parent;
+    private long _lastTotal;
+
+    /// <summary>
+    /// A forked sub-agent thread replays a copy of its parent's history after its own header (a second
+    /// <c>session_meta</c>, the parent's turn start, messages), up to <c>thread_settings_applied</c>; that copy is not
+    /// the sub-agent's work and is skipped (checked on 16 real child logs, 2026-11-19).
+    /// </summary>
+    private bool _copiedHistory;
+
     public IReadOnlyList<ActivityEvent> Parse(string line)
     {
-        if (!Markers.Any(m => line.Contains(m, StringComparison.Ordinal)))
+        if (_copiedHistory)
+        {
+            _copiedHistory = !line.Contains("thread_settings_applied", StringComparison.Ordinal);
+            return [];
+        }
+
+        var tokenLine = _parent is not null && line.Contains("token_count", StringComparison.Ordinal);
+        if (!tokenLine && !Markers.Any(m => line.Contains(m, StringComparison.Ordinal)))
         {
             return []; // most lines are tool calls, outputs and token counts
         }
@@ -170,10 +282,62 @@ public sealed class CodexActivityParser(string fallbackSessionId) : IActivityPar
         }
 
         var payload = JsonLine.Get(root, "payload");
+        if (JsonLine.String(JsonLine.Get(root, "type")) == "session_meta")
+        {
+            if (_parent is not null)
+            {
+                _copiedHistory = true; // the parent's header: its copied history follows
+                return [];
+            }
+
+            _session = JsonLine.String(JsonLine.Get(payload, "id")) ?? _session;
+            var spawn = JsonLine.Get(payload, "source", "subagent", "thread_spawn");
+            _parent = JsonLine.String(JsonLine.Get(spawn, "parent_thread_id"));
+            if (_parent is not null)
+            {
+                // agent_path "/root/moss_final_qa" reads as the task "moss final qa".
+                var task = JsonLine.String(JsonLine.Get(spawn, "agent_path"))?.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault()?.Replace('_', ' ');
+                return [SubEvent(ActivityKind.SubAgentInfo, at, new SubAgent(_session, Name: JsonLine.String(JsonLine.Get(spawn, "agent_nickname")), Task: task, OwnSession: true))];
+            }
+        }
+
+        return _parent is null ? MainEvent(root, payload, at) : SubAgentEvent(root, payload, at);
+    }
+
+    private ActivityEvent SubEvent(ActivityKind kind, DateTimeOffset at, SubAgent sub) => new(Tool.Codex, _parent!, kind, at, Sub: sub);
+
+    private IReadOnlyList<ActivityEvent> SubAgentEvent(System.Text.Json.JsonElement? root, System.Text.Json.JsonElement? payload, DateTimeOffset at)
+    {
+        switch (JsonLine.String(JsonLine.Get(root, "type")))
+        {
+            case "turn_context" when JsonLine.String(JsonLine.Get(payload, "model")) is { } model:
+                return [SubEvent(ActivityKind.SubAgentInfo, at, new SubAgent(_session, Model: model))];
+            case "event_msg":
+                switch (JsonLine.String(JsonLine.Get(payload, "type")))
+                {
+                    case "task_started":
+                        return [SubEvent(ActivityKind.SubAgentStart, at, new SubAgent(_session))];
+                    case "task_complete" or "turn_aborted":
+                        return [SubEvent(ActivityKind.SubAgentEnd, at, new SubAgent(_session))];
+                    case "token_count" when JsonLine.Get(payload, "info", "total_token_usage") is { } usage:
+                        // Totals are cumulative; a smaller total means the counters restarted.
+                        var total = JsonLine.Long(JsonLine.Get(usage, "total_tokens"));
+                        var delta = total < _lastTotal ? total : total - _lastTotal;
+                        _lastTotal = total;
+                        return delta > 0 ? [SubEvent(ActivityKind.SubAgentTokens, at, new SubAgent(_session, Tokens: delta))] : [];
+                }
+
+                return [];
+            default:
+                return [];
+        }
+    }
+
+    private IReadOnlyList<ActivityEvent> MainEvent(System.Text.Json.JsonElement? root, System.Text.Json.JsonElement? payload, DateTimeOffset at)
+    {
         switch (JsonLine.String(JsonLine.Get(root, "type")))
         {
             case "session_meta":
-                _session = JsonLine.String(JsonLine.Get(payload, "id")) ?? _session;
                 return [new(Tool.Codex, _session, ActivityKind.SessionStart, at)];
             case "turn_context" when JsonLine.String(JsonLine.Get(payload, "model")) is { } model:
                 return [new(Tool.Codex, _session, ActivityKind.ModelSeen, at, model)];
@@ -207,7 +371,8 @@ public sealed class CodexActivityParser(string fallbackSessionId) : IActivityPar
 /// </summary>
 public sealed class CopilotActivityParser(string sessionId) : IActivityParser
 {
-    private static readonly string[] Markers = ["\"session.", "\"user.message\"", "\"assistant.turn_", "\"human_response.recorded\"", "\"ask_user\""];
+    private static readonly string[] Markers = ["\"session.", "\"user.message\"", "\"assistant.turn_", "\"human_response.recorded\"", "\"ask_user\"", "\"subagent.", "\"toolName\":\"task\""];
+    private readonly Dictionary<string, string> _launchedBy = new(StringComparer.Ordinal);
     private string? _interaction;
 
     public IReadOnlyList<ActivityEvent> Parse(string line)
@@ -224,6 +389,11 @@ public sealed class CopilotActivityParser(string sessionId) : IActivityParser
         }
 
         ActivityEvent Event(ActivityKind kind, string? model = null) => new(Tool.Copilot, sessionId, kind, at, model);
+        if (JsonLine.String(JsonLine.Get(root, "agentId")) is { } agent)
+        {
+            return SubAgentLine(root, agent, at);
+        }
+
         return JsonLine.String(JsonLine.Get(root, "type")) switch
         {
             "session.start" or "session.resume" => [Event(ActivityKind.SessionStart)],
@@ -239,14 +409,49 @@ public sealed class CopilotActivityParser(string sessionId) : IActivityParser
         };
     }
 
+    /// <summary>
+    /// A sub-agent's line (top-level <c>agentId</c>): <c>subagent.started</c>/<c>completed</c>, its steps, its usage, and
+    /// the main agent's prompts to it (which also keep the main task going). A <c>task</c> tool call made by a
+    /// sub-agent records it as the parent of the sub-agent that call starts.
+    /// </summary>
+    private List<ActivityEvent> SubAgentLine(System.Text.Json.JsonElement? root, string agent, DateTimeOffset at)
+    {
+        ActivityEvent Sub(ActivityKind kind, SubAgent sub) => new(Tool.Copilot, sessionId, kind, at, Sub: sub);
+        var data = JsonLine.Get(root, "data");
+        switch (JsonLine.String(JsonLine.Get(root, "type")))
+        {
+            case "subagent.started":
+                var call = JsonLine.String(JsonLine.Get(data, "toolCallId"));
+                return [Sub(ActivityKind.SubAgentStart, new SubAgent(
+                    agent,
+                    Name: JsonLine.String(JsonLine.Get(data, "agentDisplayName")) ?? JsonLine.String(JsonLine.Get(data, "agentName")),
+                    Task: JsonLine.String(JsonLine.Get(data, "agentDescription")),
+                    Model: JsonLine.String(JsonLine.Get(data, "model")),
+                    ParentId: call is not null && _launchedBy.TryGetValue(call, out var parent) ? parent : null))];
+            case "subagent.completed":
+                return [Sub(ActivityKind.SubAgentEnd, new SubAgent(agent))];
+            case "user.message":
+                return [new(Tool.Copilot, sessionId, ActivityKind.StepStart, at), Sub(ActivityKind.SubAgentStart, new SubAgent(agent))];
+            case "assistant.turn_start":
+                return [Sub(ActivityKind.SubAgentStart, new SubAgent(agent))];
+            case "assistant.turn_end":
+                return [Sub(ActivityKind.SubAgentStepEnd, new SubAgent(agent))];
+            case "session.usage_record":
+                var usage = JsonLine.Get(data, "usage");
+                return [Sub(ActivityKind.SubAgentTokens, new SubAgent(agent, Tokens: JsonLine.Long(JsonLine.Get(usage, "inputTokens")) + JsonLine.Long(JsonLine.Get(usage, "outputTokens"))))];
+            case "tool.execution_start" when JsonLine.String(JsonLine.Get(data, "toolName")) == "ask_user":
+                return [new(Tool.Copilot, sessionId, ActivityKind.WaitStart, at)]; // a sub-agent asking you still waits for you
+            case "tool.execution_start" when JsonLine.String(JsonLine.Get(data, "toolName")) == "task" && JsonLine.String(JsonLine.Get(data, "toolCallId")) is { } launch:
+                _launchedBy[launch] = agent;
+                return [];
+            default:
+                return [];
+        }
+    }
+
     /// <summary>A new task, or (steering / same interaction) a step of the running one.</summary>
     private ActivityKind Prompt(System.Text.Json.JsonElement? root)
     {
-        if (JsonLine.Get(root, "agentId") is not null)
-        {
-            return ActivityKind.StepStart; // the main agent prompting a sub-agent: same task, same timer
-        }
-
         var interaction = JsonLine.String(JsonLine.Get(root, "data", "interactionId"));
         var continues = JsonLine.String(JsonLine.Get(root, "data", "delivery")) == "steering"
                         || (interaction is not null && interaction == _interaction);

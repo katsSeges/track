@@ -12,6 +12,7 @@ namespace Track.Core.Live;
 /// <param name="ProcessRunning">The tool's app or CLI process is running (Claude's desktop app counts, so this alone does not mean working).</param>
 /// <param name="LastModel">Model used most in the latest hour with usage.</param>
 /// <param name="LastActivityUtc">Newest log write within the last day, or null.</param>
+/// <param name="SubAgents">Running sub-agents of this tool's working sessions (they count as sessions in the tray).</param>
 public sealed record LiveStatus(
     Tool Tool,
     bool Working,
@@ -19,7 +20,8 @@ public sealed record LiveStatus(
     int OpenSessions,
     bool ProcessRunning,
     string? LastModel,
-    DateTimeOffset? LastActivityUtc);
+    DateTimeOffset? LastActivityUtc,
+    int SubAgents = 0);
 
 /// <summary>Checks every few seconds which agents are working, from log write times and processes.</summary>
 public sealed partial class LiveStatusDetector(
@@ -64,13 +66,14 @@ public sealed partial class LiveStatusDetector(
 
     /// <summary>
     /// The live status as the tray and popover show it, taken from the same working agents the island shows, so the
-    /// two never disagree: a tool is working when at least one of its sessions is, and the session count is theirs.
+    /// two never disagree: a tool is working when at least one of its sessions is (an agent whose background
+    /// sub-agents still run included), and the session and running sub-agent counts are theirs.
     /// </summary>
     public static IReadOnlyDictionary<Tool, LiveStatus> WithAgents(IReadOnlyDictionary<Tool, LiveStatus> live, IReadOnlyList<Activity.AgentActivity> working) =>
         live.ToDictionary(p => p.Key, p =>
         {
-            var sessions = working.Count(a => a.Tool == p.Key);
-            return p.Value with { Working = sessions > 0, ActiveSessions = sessions };
+            var mine = working.Where(a => a.Tool == p.Key).ToList();
+            return p.Value with { Working = mine.Count > 0, ActiveSessions = mine.Count, SubAgents = mine.Sum(a => a.Subs.Count(s => s.Running)) };
         });
 
     /// <summary>Copilot sessions with an <c>inuse.&lt;pid&gt;.hold</c> file whose process is alive.</summary>

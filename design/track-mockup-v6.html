@@ -1,0 +1,283 @@
+<title>Track Sub-agents</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: left = desktop with the island (opened + compact) and the tray popover, live and ticking; right = decision panel. Stacks on phone. */
+:root{
+  --bg:#e9ebef; --desk1:#9fb4cc; --desk2:#6f86a3; --fg:#1d1d1f; --muted:#6e6e73; --line:rgba(0,0,0,.09);
+  --panel:#ffffff; --pop:rgba(246,246,248,.9); --popsolid:#f6f6f8; --row:rgba(0,0,0,.035);
+  --accent:#0a66d8; --ok:#28a745; --warn:#d98a00; --task:#e8ecf2; --taskfg:#333;
+  --claude:#d97757; --codex:#2b2b2e; --copilot:#7a4fd6;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",sans-serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.88); --popsolid:#2e2e33; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#e4e4ea; --copilot:#a98bff; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#18191c; --desk1:#2a3546; --desk2:#141a24; --fg:#f2f2f4; --muted:#9a9aa1; --line:rgba(255,255,255,.1);
+  --panel:#222327; --pop:rgba(40,40,44,.88); --popsolid:#2e2e33; --row:rgba(255,255,255,.05);
+  --accent:#4c9bff; --ok:#3ccf62; --warn:#ffb340; --task:#1f2228; --taskfg:#ddd;
+  --claude:#e08560; --codex:#e4e4ea; --copilot:#a98bff; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:13px}
+.wrap{max-width:1220px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:28px}
+@media (max-width:940px){.wrap{grid-template-columns:1fr}}
+main{display:flex;flex-direction:column;gap:16px;min-width:0}
+h1{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:0 0 4px;text-wrap:balance}
+h2{font-size:14px;margin:0}
+.sub{color:var(--muted);margin:0;max-width:66ch;line-height:1.5}
+.tag{display:inline-block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--warn);border:1px solid currentColor;border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:2px}
+
+/* simulation controls */
+.sim{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.sim button{border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:7px;padding:5px 10px;font:500 12px var(--sans);cursor:pointer}
+.sim button:hover{border-color:var(--accent)}
+.sim button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sim .note{color:var(--muted);font-size:11.5px}
+
+/* desktop stage */
+.stage{position:relative;border-radius:14px;overflow:hidden;background:linear-gradient(160deg,var(--desk1),var(--desk2));padding:0 12px 60px;display:flex;flex-direction:column;align-items:center;gap:18px;min-height:640px}
+.lbl{font:600 10.5px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:#fff;opacity:.85}
+.col{display:flex;flex-direction:column;align-items:center;gap:6px;max-width:100%}
+.row2{display:flex;flex-wrap:wrap;gap:22px;justify-content:center;align-items:flex-start;width:100%}
+.task{position:absolute;left:0;right:0;bottom:0;height:44px;background:var(--task);color:var(--taskfg);display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 14px;font-size:12px;border-top:1px solid var(--line)}
+.clock{text-align:right;line-height:1.2;font-variant-numeric:tabular-nums}
+
+/* island (always black, its own palette) */
+.isl{--claude:#e08560;--codex:#e4e4ea;--copilot:#a98bff;--ifg:#f5f5f7;--imuted:#9a9aa1;--iline:rgba(255,255,255,.1);--bgmark:#000;
+  background:#000;color:var(--ifg);border:1px solid rgba(255,255,255,.25);font-family:var(--sans)}
+.isl.open{width:420px;max-width:calc(100vw - 64px);border-radius:0 0 26px 26px;border-top:0;padding:14px 16px 12px}
+.isl.compact{border-radius:0 0 19px 19px;border-top:0;padding:8px 14px 8px 10px;display:flex;align-items:center;gap:9px;min-height:36px;font-size:12.5px}
+.ihead{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;margin-bottom:8px}
+.ihead .r{margin-left:auto;font:400 11px var(--mono);color:var(--imuted)}
+.mini{width:22px;height:22px;border-radius:11px;background:rgba(255,255,255,.14);display:grid;place-items:center;margin-left:8px}
+.mini i{width:10px;height:2px;border-radius:1px;background:#f5f5f7;display:block}
+.itabs{display:flex;background:rgba(255,255,255,.08);border-radius:8px;padding:2px;margin-bottom:8px}
+.itabs span{flex:1;text-align:center;font:500 11.5px var(--sans);padding:4px 0;border-radius:6px;color:var(--imuted)}
+.itabs span.on{background:rgba(255,255,255,.19);color:#f5f5f7;font-weight:600}
+.agent{border-top:1px solid var(--iline);padding:8px 0}
+.amain{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 10px;align-items:center}
+.amain .nm{display:flex;flex-direction:column;gap:2px;min-width:0}
+.amain .nm span{display:flex;align-items:center;gap:0;font-size:12.5px}
+.amain small{font:10.5px var(--mono);color:var(--imuted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.amain .rt{text-align:right;font:500 15px var(--mono);font-variant-numeric:tabular-nums}
+.amain .rt small{display:block;font-size:10.5px;color:var(--imuted)}
+.wv{display:inline-flex;gap:2px;align-items:center;height:12px;margin-left:8px}.wv i{width:3px;height:6px;border-radius:2px;background:var(--c)}
+.dot{width:6px;height:6px;border-radius:3px;background:var(--c);display:inline-block;flex:none}
+@media (prefers-reduced-motion:no-preference){.wv i{animation:wv .9s ease-in-out infinite}.wv i:nth-child(2){animation-delay:-.3s}.wv i:nth-child(3){animation-delay:-.6s}.dot.pulse{animation:pl 1.6s ease-in-out infinite}}
+@keyframes wv{50%{height:12px}}
+@keyframes pl{50%{opacity:.35}}
+
+/* sub-agents: nested */
+.subs{margin:6px 0 0 30px;display:flex;flex-direction:column;gap:5px;position:relative}
+.subs.tree{padding-left:12px;border-left:1px solid rgba(255,255,255,.16)}
+.sa{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:1px 8px;align-items:center;font-size:11.5px;transition:opacity .45s ease,transform .45s ease}
+.sa .who{display:flex;align-items:center;gap:6px;min-width:0}
+.sa .who b{font-weight:500;white-space:nowrap}
+.sa .task2{color:var(--imuted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.sa .meta{grid-column:2 / 3;font:10px var(--mono);color:var(--imuted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sa .t{font:500 12px var(--mono);font-variant-numeric:tabular-nums;text-align:right;color:#e8e8ec}
+.sa.done .t{color:var(--ok,#3ccf62)}
+.sa.done{opacity:.55}
+.sa.leaving{opacity:0;transform:translateX(6px)}
+.sa.depth2{margin-left:16px}
+.more{font:10.5px var(--mono);color:var(--imuted);padding-left:14px}
+/* sub-agents: chips */
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0 0 30px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);border-radius:11px;padding:2px 9px 2px 7px;font-size:11px;transition:opacity .45s ease}
+.chip .t{font:500 10.5px var(--mono);color:#e8e8ec;font-variant-numeric:tabular-nums}
+.chip.done{opacity:.55}.chip.leaving{opacity:0}
+/* sub-agents: count only */
+.countline{margin:5px 0 0 30px;font:10.5px var(--mono);color:var(--imuted);display:flex;gap:6px;align-items:center}
+
+/* compact pill extras */
+.cbadge{font:600 10px var(--mono);background:rgba(255,255,255,.16);border-radius:8px;padding:1px 6px;color:#f5f5f7}
+.cdots{display:inline-flex;gap:3px;margin-left:-2px}
+.ctext{font:11px var(--mono);color:var(--imuted)}
+
+/* tray popover */
+.pop{width:330px;max-width:calc(100vw - 64px);background:var(--pop);backdrop-filter:blur(30px) saturate(1.6);-webkit-backdrop-filter:blur(30px) saturate(1.6);border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.28);padding:10px}
+.phead{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 8px;font-weight:600}
+.phead span{color:var(--muted);font-size:11px;font-weight:400}
+.live{display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:8px;background:var(--row)}
+.liverow{display:grid;grid-template-columns:auto auto auto minmax(0,1fr);gap:6px;align-items:center;font-size:12px;padding:2px}
+.liverow.idle{color:var(--muted)}
+.liverow .m{color:var(--muted);text-align:right;font-family:var(--mono);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{font-size:10px;font-weight:600;padding:1px 6px;border-radius:9px;background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.pnote{font-size:11px;color:var(--muted);margin:8px 2px 0;line-height:1.45}
+
+/* decision panel */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:14px;align-self:start}
+.q{display:flex;flex-direction:column;gap:6px}
+.q .h{font-weight:600;font-size:12px}
+.q p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.45}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opts label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px}
+.opts input{accent-color:var(--accent);margin:0}
+.opts label:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.opts label:has(input:focus-visible){outline:2px solid var(--accent)}
+.fixed{font-size:11.5px;color:var(--muted);line-height:1.6}
+.fixed b{color:var(--fg);font-weight:500}
+.data{width:100%;border-collapse:collapse;font-size:11px}
+.data th,.data td{text-align:left;padding:4px 4px;border-top:1px solid var(--line);vertical-align:top}
+.data th{color:var(--muted);font-weight:500}
+textarea{width:100%;box-sizing:border-box;min-height:56px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:12px var(--sans);padding:8px;resize:vertical}
+textarea:focus-visible{outline:2px solid var(--accent)}
+pre.out{background:var(--row);border-radius:8px;padding:10px;font:11px/1.5 var(--mono);white-space:pre-wrap;margin:0;max-height:260px;overflow:auto}
+.copy{align-self:flex-start;border:1px solid var(--accent);color:var(--accent);background:transparent;border-radius:6px;padding:5px 12px;font:600 12px var(--sans);cursor:pointer}
+.copy:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="wrap">
+  <main>
+    <div>
+      <h1>Track, round 6: sub-agents</h1>
+      <p class="sub">Each main agent in the opened island lists the sub-agents it is running, with their own timers, and they leave when they finish. The tray counts them too. Everything below ticks live; start and finish sub-agents to see how it behaves, and change the options on the right. <span class="tag">example data</span></p>
+    </div>
+    <div class="sim" role="group" aria-label="Simulation">
+      <button type="button" id="addSub">Start a sub-agent</button>
+      <button type="button" id="endSub">Finish the oldest sub-agent</button>
+      <button type="button" id="reset">Reset</button>
+      <span class="note" id="simNote">5 sub-agents running under 3 agents</span>
+    </div>
+    <div class="stage" id="stage">
+      <div class="row2">
+        <div class="col"><div class="isl open" id="islOpen" aria-label="Opened island"></div><span class="lbl">Island, opened</span></div>
+      </div>
+      <div class="row2">
+        <div class="col"><div class="isl compact" id="islCompact" aria-label="Compact island"></div><span class="lbl">Island, compact (same moment)</span></div>
+      </div>
+      <div class="row2" style="justify-content:flex-end;margin-top:auto">
+        <div class="col" style="align-items:flex-end"><div class="pop" id="pop" aria-label="Tray popover"></div><span class="lbl">Tray popover</span></div>
+      </div>
+      <div class="task"><span class="clock" id="clock">10:24<br>19-11-2026</span></div>
+    </div>
+  </main>
+
+  <aside class="panel" aria-label="Decisions">
+    <h2>Round 6 choices</h2>
+    <div class="fixed">Given: <b>sub-agents show under their main agent</b>, <b>with their own run time</b>, <b>leave when done</b>, and <b>count as sessions in the tray</b>. The island keeps its round 4–5 look.</div>
+    <div id="qs"></div>
+    <div class="q"><span class="h">What each tool tells us</span>
+      <table class="data"><thead><tr><th></th><th>Name</th><th>Task</th><th>Model</th><th>Tokens</th></tr></thead>
+        <tbody>
+          <tr><td>Claude Code</td><td>type (Explore)</td><td>yes</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Copilot</td><td>name (QA)</td><td>role only</td><td>yes</td><td>yes</td></tr>
+          <tr><td>Codex</td><td>nickname (Zeno)</td><td>no</td><td>yes</td><td>yes</td></tr>
+        </tbody></table>
+      <p>Where a tool has no task text, the line falls back to the agent's role or stays empty.</p>
+    </div>
+    <div class="q"><label class="h" for="notes">Anything else?</label><textarea id="notes" placeholder="Changes, wording, spacing…"></textarea></div>
+    <div class="q"><span class="h">Your choices</span><p>Copy and paste into chat.</p>
+      <pre class="out" id="out"></pre>
+      <button class="copy" type="button" id="copyBtn">Copy choices</button>
+    </div>
+  </aside>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const NAME={claude:"Claude Code",codex:"Codex",copilot:"Copilot"};
+const logo=(t,s=14)=>`<svg width="${s}" height="${s}" viewBox="0 0 16 16" aria-hidden="true" style="flex:none">${mark(t)}</svg>`;
+function mark(k){const c=`var(--${k})`;
+  if(k==="claude"){let s="";for(let a=0;a<12;a++){const t=a*Math.PI/6+.13,L=a%3===0?7.2:a%2?5.4:6.3;s+=`<line x1="8" y1="8" x2="${(8+Math.cos(t)*L).toFixed(2)}" y2="${(8+Math.sin(t)*L).toFixed(2)}"/>`}return `<g style="stroke:${c}" stroke-width="1.9" stroke-linecap="round">${s}</g>`;}
+  if(k==="codex")return `<rect x="1.2" y="2.2" width="13.6" height="11.6" rx="3.2" style="fill:${c}"/><path d="M4.4 6l2.4 2-2.4 2" fill="none" stroke="var(--bgmark,#fff)" stroke-width="1.6" stroke-linecap="round"/><path d="M8.6 10.3h3" stroke="var(--bgmark,#fff)" stroke-width="1.6" stroke-linecap="round"/>`;
+  return `<path d="M3 6.2C3 3.6 5 2 8 2s5 1.6 5 4.2v1.3c1 .3 1.6 1.1 1.6 2.1v1.2c0 .9-.5 1.6-1.3 2C12 14.4 10.3 15 8 15s-4-.6-5.3-2.2c-.8-.4-1.3-1.1-1.3-2V9.6c0-1 .6-1.8 1.6-2.1z" style="fill:${c}"/><rect x="4.1" y="5" width="3.4" height="3" rx="1.3" fill="var(--bgmark,#fff)"/><rect x="8.5" y="5" width="3.4" height="3" rx="1.3" fill="var(--bgmark,#fff)"/>`;}
+const tm=s=>{s=Math.max(0,Math.floor(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h?`${h}:${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}`:`${m}:${String(x).padStart(2,"0")}`};
+const fmt=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1e3?Math.round(n/1e3)+"k":String(Math.round(n));
+
+/* ---- questions ---- */
+const QS=[
+ {k:"layout",h:"How sub-agents sit under their agent",p:"Rows read best with task text; chips stay small; a count is the quietest.",o:[["rows","Indented rows"],["tree","Rows with a guide line"],["chips","Chips"],["count","Count only"]],d:"tree"},
+ {k:"info",multi:true,h:"What a sub-agent row shows",p:"Run time is always shown.",o:[["name","Name / type"],["task","Task"],["model","Model"],["tokens","Tokens"],["tools","Tool calls"]],d:["name","task","tokens"]},
+ {k:"activity",h:"Working sign on a sub-agent",p:"The main agent keeps its waveform.",o:[["dot","Pulsing dot"],["wave","Small waveform"],["static","Plain dot"],["none","None"]],d:"dot"},
+ {k:"done",h:"When a sub-agent finishes",p:"It always leaves; this is how.",o:[["fade","✓ for 3 s, then fades"],["now","Disappears at once"],["keep","Stays dimmed until its agent finishes"]],d:"fade"},
+ {k:"max",h:"How many rows per agent",p:"The rest collapse into “+N more”.",o:[["2","2"],["3","3"],["all","All"]],d:"3"},
+ {k:"nested",h:"Sub-agents of sub-agents",p:"Claude Code can nest them (depth 2+).",o:[["indent","Indent one more step"],["flat","Same level as the others"],["hide","Leave them out"]],d:"indent"},
+ {k:"compact",h:"Compact island hint",p:"How the small pill shows that sub-agents are running.",o:[["badge","+2 badge"],["dots","Dots under the timer"],["text","“2 sub”"],["none","Nothing"]],d:"badge"},
+ {k:"tray",h:"Tray popover wording",p:"Sub-agents count as sessions; how it reads.",o:[["split","1 session · 2 sub-agents"],["sum","3 sessions"],["plus","1 session +2"]],d:"split"},
+];
+const saved=(()=>{try{return JSON.parse(localStorage.getItem("track-mock-v6")||"{}")}catch(e){return {}}})();
+const S={};QS.forEach(q=>S[q.k]=saved[q.k]??q.d);
+$("qs").innerHTML=QS.map(q=>`<div class="q"><span class="h" id="h-${q.k}">${q.h}</span><p>${q.p}</p><div class="opts" role="${q.multi?"group":"radiogroup"}" aria-labelledby="h-${q.k}">${q.o.map(([v,l])=>`<label><input type="${q.multi?"checkbox":"radio"}" name="${q.k}" id="${q.k}-${v}" value="${v}" ${(q.multi?S[q.k].includes(v):S[q.k]===v)?"checked":""}>${l}</label>`).join("")}</div></div>`).join("");
+$("qs").addEventListener("change",e=>{const q=QS.find(x=>x.k===e.target.name);if(!q)return;
+  S[q.k]=q.multi?[...document.querySelectorAll(`input[name="${q.k}"]:checked`)].map(i=>i.value):e.target.value;render();});
+try{$("notes").value=saved.notes||""}catch(e){}
+$("notes").addEventListener("input",render);
+
+/* ---- simulated agents (example data) ---- */
+const POOL=[
+ {tool:"claude",name:"Explore",task:"Find where chart clicks are hit-tested",model:"claude-haiku-5-5",rate:9e3,tools:.4},
+ {tool:"claude",name:"general-purpose",task:"Update Playwright tests for the popover",model:"claude-opus-5-5",rate:21e3,tools:.3},
+ {tool:"claude",name:"Explore",task:"List every caller of TrimMemory",model:"claude-haiku-5-5",rate:7e3,tools:.5,depth:2},
+ {tool:"copilot",name:"QA",task:"Dedicated QA specialist",model:"gpt-6.1-sol",rate:3.4e3,tools:.09},
+ {tool:"copilot",name:"Reviewer",task:"Code review specialist",model:"gpt-6.1-sol",rate:2.8e3,tools:.06},
+ {tool:"codex",name:"Zeno",task:"",model:"gpt-6.1-sol",rate:4e3,tools:.2},
+];
+let t0,agents,subs,nextId,poolAt;
+function reset(){t0=Date.now()/1000;nextId=1;poolAt=5;
+  agents=[{tool:"claude",turn:754,session:3600,model:"claude-opus-5-5",tok:2.1e6},{tool:"copilot",turn:200,session:1200,model:"gpt-6.1-sol",tok:640e3},{tool:"codex",turn:48,session:600,model:"gpt-6.1-sol",tok:88e3}];
+  subs=[mk(0,72),mk(1,245),mk(2,31),mk(3,161),mk(5,30)];render();}
+function mk(i,ago){const p=POOL[i];return {...p,id:nextId++,start:Date.now()/1000-ago,end:null,leaving:false};}
+const now=()=>Date.now()/1000;
+const age=s=>((s.end??now())-s.start);
+function finish(s){if(s.end)return;s.end=now();
+  if(S.done==="now"){subs=subs.filter(x=>x!==s);}
+  else if(S.done==="fade"){setTimeout(()=>{s.leaving=true;render();setTimeout(()=>{subs=subs.filter(x=>x!==s);render();},460)},3000);}
+  render();}
+$("addSub").addEventListener("click",()=>{subs.push(mk(poolAt%POOL.length,0));poolAt++;render();});
+$("endSub").addEventListener("click",()=>{const r=subs.filter(s=>!s.end).sort((a,b)=>a.start-b.start)[0];if(r)finish(r);});
+$("reset").addEventListener("click",reset);
+
+/* ---- rendering ---- */
+function sign(s,c){const st=`style="--c:var(--${c})"`;
+  if(s.end)return `<span style="font:600 11px var(--mono);color:#3ccf62;width:8px;text-align:center">✓</span>`;
+  return {dot:`<span class="dot pulse" ${st}></span>`,wave:`<span class="wv" style="--c:var(--${c});margin-left:0;height:10px"><i></i><i></i><i></i></span>`,static:`<span class="dot" ${st}></span>`,none:""}[S.activity];}
+function visible(a){let list=subs.filter(s=>s.tool===a.tool);
+  if(S.done==="keep")list=list; else list=list.filter(s=>!(s.end&&S.done==="now"));
+  if(S.nested==="hide")list=list.filter(s=>!s.depth);
+  return list;}
+function subRow(s){const bits=[];
+  if(S.info.includes("model"))bits.push(s.model);
+  if(S.info.includes("tokens"))bits.push(fmt(age(s)*s.rate)+" tokens");
+  if(S.info.includes("tools"))bits.push(Math.max(1,Math.round(age(s)*s.tools))+" tool calls");
+  const cls=["sa",s.end?"done":"",s.leaving?"leaving":"",s.depth&&S.nested==="indent"?"depth2":""].join(" ");
+  const who=S.info.includes("name")?`<b>${s.name}</b>`:"";
+  const task=S.info.includes("task")&&s.task?`<span class="task2">${s.task}</span>`:"";
+  return `<div class="${cls}">${sign(s,s.tool)}<span class="who">${who}${task}</span><span class="t">${s.end?"done "+tm(age(s)):tm(age(s))}</span>${bits.length?`<span class="meta">${bits.join(" · ")}</span>`:""}</div>`;}
+function subBlock(a){const list=visible(a);if(!list.length)return "";
+  const running=list.filter(s=>!s.end).length;
+  if(S.layout==="count")return `<div class="countline">${sign({},a.tool)}${running} sub-agent${running===1?"":"s"} running${list.length>running?` · ${list.length-running} done`:""}</div>`;
+  const max=S.max==="all"?99:+S.max, shown=list.slice(0,max), more=list.length-shown.length;
+  if(S.layout==="chips")return `<div class="chips">${shown.map(s=>`<span class="chip ${s.end?"done":""} ${s.leaving?"leaving":""}">${sign(s,s.tool)}${S.info.includes("name")?s.name:""}<span class="t">${s.end?"✓ "+tm(age(s)):tm(age(s))}</span></span>`).join("")}${more?`<span class="chip">+${more}</span>`:""}</div>`;
+  return `<div class="subs ${S.layout==="tree"?"tree":""}">${shown.map(subRow).join("")}${more?`<span class="more">+${more} more</span>`:""}</div>`;}
+function openIsland(){const n=agents.length;const today=agents.reduce((x,a)=>x+a.tok,0)+subs.reduce((x,s)=>x+age(s)*s.rate,0);
+  let h=`<div class="ihead">${n} agents working<span class="r">today ${fmt(28e6+today)} · $31.40</span><span class="mini"><i></i></span></div>`;
+  h+=`<div class="itabs"><span class="on">Now</span><span>Usage</span></div>`;
+  h+=agents.map(a=>{const e=now()-t0;return `<div class="agent"><div class="amain">${logo(a.tool,20)}<span class="nm"><span>${NAME[a.tool]}<span class="wv" style="--c:var(--${a.tool})"><i></i><i></i><i></i></span></span><small>${a.model} · ${fmt(a.tok+subs.filter(s=>s.tool===a.tool).reduce((x,s)=>x+age(s)*s.rate,0))} this session</small></span><span class="rt">${tm(a.turn+e)}<small>session ${tm(a.session+e)}</small></span></div>${subBlock(a)}</div>`}).join("");
+  $("islOpen").innerHTML=h;}
+function compactIsland(){const a=agents[0],e=now()-t0,running=subs.filter(s=>s.tool===a.tool&&!s.end&&!(S.nested==="hide"&&s.depth)).length;
+  let hint="";
+  if(running&&S.compact==="badge")hint=`<span class="cbadge">+${running}</span>`;
+  if(running&&S.compact==="dots")hint=`<span class="cdots">${Array.from({length:Math.min(running,4)},()=>`<span class="dot pulse" style="--c:var(--${a.tool});width:5px;height:5px"></span>`).join("")}</span>`;
+  if(running&&S.compact==="text")hint=`<span class="ctext">${running} sub</span>`;
+  $("islCompact").innerHTML=`${logo(a.tool,16)}<span class="wv" style="--c:var(--${a.tool});margin-left:0"><i></i><i></i><i></i></span><span style="font:500 13px var(--mono);font-variant-numeric:tabular-nums">${tm(a.turn+e)}</span><span style="font:11px var(--mono);color:var(--imuted)">${fmt(a.tok)}</span>${hint}`;}
+function popover(){const row=a=>{const r=subs.filter(s=>s.tool===a.tool&&!s.end).length;
+    const txt={split:`1 session${r?` · ${r} sub-agent${r===1?"":"s"}`:""}`,sum:`${1+r} sessions`,plus:`1 session${r?` +${r}`:""}`}[S.tray];
+    return `<div class="liverow">${logo(a.tool)}<span>${NAME[a.tool]}</span><span class="pill">running</span><span class="m">${txt} · ${a.model}</span></div>`;};
+  $("pop").innerHTML=`<div class="phead">Track<span>Updated just now</span></div><div class="live">${agents.map(row).join("")}</div><p class="pnote">Usage table, chart and footer unchanged from round 5.</p>`;}
+function render(){openIsland();compactIsland();popover();
+  const r=subs.filter(s=>!s.end).length;$("simNote").textContent=`${r} sub-agent${r===1?"":"s"} running under ${agents.length} agents`;
+  const out={...S};const notes=$("notes").value.trim();if(notes)out.notes=notes;
+  $("out").textContent=JSON.stringify(out,null,2);
+  try{localStorage.setItem("track-mock-v6",JSON.stringify({...S,notes}))}catch(e){}}
+$("copyBtn").addEventListener("click",async()=>{try{await navigator.clipboard.writeText($("out").textContent);$("copyBtn").textContent="Copied";}
+  catch(e){const r=document.createRange();r.selectNodeContents($("out"));const s=getSelection();s.removeAllRanges();s.addRange(r);$("copyBtn").textContent="Selected, press Ctrl+C";}
+  setTimeout(()=>$("copyBtn").textContent="Copy choices",2000);});
+reset();
+setInterval(()=>{const d=new Date();$("clock").innerHTML=`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}<br>19-11-2026`;
+  // the Codex sub-agent finishes on its own after ~45 s, to show the exit
+  subs.filter(s=>s.tool==="codex"&&!s.end&&age(s)>75).forEach(finish);render();},1000);
+</script>

@@ -151,7 +151,7 @@ public class ActivityParsersTests
         Assert.Equal([ActivityKind.TurnStart], Kinds(p, "{\"type\":\"user.message\"," + T + ",\"data\":{\"delivery\":\"idle\",\"interactionId\":\"main\"}}"));
 
         // The main agent prompts a sub-agent: same log, top-level agentId, its own new interaction.
-        Assert.Equal([ActivityKind.StepStart], Kinds(p, "{\"type\":\"user.message\"," + T + ",\"agentId\":\"sub-1\",\"data\":{\"delivery\":\"idle\",\"interactionId\":\"sub\"}}"));
+        Assert.Equal([ActivityKind.StepStart, ActivityKind.SubAgentStart], Kinds(p, "{\"type\":\"user.message\"," + T + ",\"agentId\":\"sub-1\",\"data\":{\"delivery\":\"idle\",\"interactionId\":\"sub\"}}"));
         // …which does not replace the main interaction.
         Assert.Equal([ActivityKind.StepStart], Kinds(p, "{\"type\":\"user.message\"," + T + ",\"data\":{\"delivery\":\"queued\",\"interactionId\":\"main\"}}"));
 

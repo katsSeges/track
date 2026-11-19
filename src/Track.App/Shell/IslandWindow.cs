@@ -37,6 +37,7 @@ public sealed class IslandWindow : Window
     private readonly StackPanel _root = new() { Orientation = Orientation.Horizontal };
     private readonly TranslateTransform _slide = new();
     private readonly List<(TextBlock Task, TextBlock Session)> _rowTimers = [];
+    private readonly List<TextBlock> _subTimers = [];
     private readonly Dictionary<string, FrameworkElement> _named = [];
     private string? _shownKey;
     private TextBlock? _timer;
@@ -111,6 +112,7 @@ public sealed class IslandWindow : Window
             _shownKey = key;
             _timer = null;
             _rowTimers.Clear();
+            _subTimers.Clear();
             _named.Clear();
             _root.Children.Clear();
             if (content.State == IslandState.Open)
@@ -182,7 +184,8 @@ public sealed class IslandWindow : Window
     /// <summary>Everything that needs a rebuild: all content except the running timers.</summary>
     private static string ContentKey(IslandContent c) =>
         $"{c.State}|{c.NeedsYou}|{c.CanMinimize}|{c.MainTool}|{(c.State == IslandState.Active ? "" : c.MainText)}|{c.MainExtra}|{string.Join(",", c.Logos)}|{string.Join(",", c.Bubble)}|{c.Counter}|{c.Header}|{c.HeaderRight}|{c.Footer}|{c.Activity}|" +
-        string.Join(";", c.Rows.Select(r => $"{r.Tool}{r.Detail}")) + string.Join(";", c.Table) + $"|{c.Tab}|" + UsageKey(c.Usage);
+        string.Join(";", c.Rows.Select(r => $"{r.Tool}{r.Detail}[{string.Join(",", r.Subs.Select(x => $"{x.Name}/{x.Task}/{x.Meta}/{x.Running}/{x.Depth}"))}]")) +
+        string.Join(";", c.Table) + $"|{c.Tab}|{c.SubAgentDots}|" + UsageKey(c.Usage);
 
     private static string UsageKey(UsagePanelContent? u) => u is null
         ? ""
@@ -201,6 +204,12 @@ public sealed class IslandWindow : Window
         {
             _rowTimers[i].Task.Text = c.Rows[i].TaskTimer;
             _rowTimers[i].Session.Text = c.Rows[i].SessionTimer;
+        }
+
+        var subs = c.Rows.SelectMany(r => r.Subs).ToList();
+        for (var i = 0; i < Math.Min(_subTimers.Count, subs.Count); i++)
+        {
+            _subTimers[i].Text = subs[i].Timer;
         }
     }
 
@@ -295,6 +304,18 @@ public sealed class IslandWindow : Window
         {
             _timer = Text(c.MainText, White, mono: true, margin: 9);
             row.Children.Add(_timer);
+            if (c.SubAgentDots > 0 && c.MainTool is { } dotsFor)
+            {
+                // One pulsing dot per running sub-agent (round 6), at most 4.
+                var dots = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+                for (var i = 0; i < c.SubAgentDots; i++)
+                {
+                    dots.Children.Add(PulseDot(dotsFor, 5, new Thickness(i == 0 ? 0 : 3, 0, 0, 0)));
+                }
+
+                row.Children.Add(dots);
+            }
+
             row.Children.Add(Text(c.MainExtra, Dim, mono: true, margin: 7));
             row.Children.Add(Text(c.Counter, Dim, margin: 7));
         }
@@ -391,7 +412,14 @@ public sealed class IslandWindow : Window
             grid.Children.Add(logo);
             grid.Children.Add(name);
             grid.Children.Add(timers);
-            panel.Children.Add(new Border { BorderBrush = Rule, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 8), Child = grid });
+            var agent = new StackPanel();
+            agent.Children.Add(grid);
+            if (r.Subs.Count > 0)
+            {
+                agent.Children.Add(SubAgentRows(r.Subs));
+            }
+
+            panel.Children.Add(new Border { BorderBrush = Rule, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 8), Child = agent });
         }
 
         if (c.Rows.Count == 0)
@@ -422,6 +450,79 @@ public sealed class IslandWindow : Window
         }
 
         return Pill(panel, open: true);
+    }
+
+    /// <summary>
+    /// Sub-agents under their agent (round 6): a thin guide line on the left, a pulsing dot (✓ once done), name and
+    /// task, <c>model · tokens</c> underneath, and the run time on the right. Finished ones are dimmed until the agent
+    /// leaves; nested ones sit one step further in.
+    /// </summary>
+    private Border SubAgentRows(IReadOnlyList<IslandSubAgentRow> subs)
+    {
+        var list = new StackPanel();
+        foreach (var x in subs)
+        {
+            var grid = new Grid { Margin = new Thickness((x.Depth - 1) * 14, 3, 0, 3), Opacity = x.Running ? 1 : 0.5 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            FrameworkElement sign = x.Running
+                ? PulseDot(x.Tool, 6, new Thickness(0))
+                : new TextBlock { Text = "✓", Foreground = Done, FontFamily = Mono, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+            sign.HorizontalAlignment = HorizontalAlignment.Left;
+            var head = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, FontSize = 11.5 };
+            head.Inlines.Add(new System.Windows.Documents.Run(x.Name) { Foreground = White, FontWeight = FontWeights.Medium });
+            if (x.Task is { } task)
+            {
+                head.Inlines.Add(new System.Windows.Documents.Run("  " + task) { Foreground = Dim });
+            }
+
+            head.ToolTip = x.Task is null ? x.Name : $"{x.Name} · {x.Task}";
+            var timer = new TextBlock { Text = x.Timer, Foreground = x.Running ? White : Done, FontFamily = Mono, FontSize = 12, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            _subTimers.Add(timer);
+            Grid.SetColumn(head, 1);
+            Grid.SetColumn(timer, 2);
+            grid.Children.Add(sign);
+            grid.Children.Add(head);
+            grid.Children.Add(timer);
+            if (x.Meta is { } meta)
+            {
+                var line = Text(meta, Dim, mono: true, size: 10);
+                line.TextTrimming = TextTrimming.CharacterEllipsis;
+                Grid.SetRow(line, 1);
+                Grid.SetColumn(line, 1);
+                Grid.SetColumnSpan(line, 2);
+                grid.Children.Add(line);
+            }
+
+            list.Children.Add(grid);
+        }
+
+        // Indented under the agent's name, with a thin guide line on the left.
+        return new Border { Margin = new Thickness(30, 6, 0, 0), Padding = new Thickness(10, 0, 0, 0), BorderBrush = Frozen(Color.FromArgb(0x29, 0xFF, 0xFF, 0xFF)), BorderThickness = new Thickness(1, 0, 0, 0), Child = list };
+    }
+
+    /// <summary>A small dot in the tool's color that pulses while it works (still when reduced motion is on).</summary>
+    private static Ellipse PulseDot(Tool tool, double size, Thickness margin)
+    {
+        var dot = new Ellipse
+        {
+            Width = size,
+            Height = size,
+            Margin = margin,
+            VerticalAlignment = VerticalAlignment.Center,
+            Fill = Frozen((Color)ColorConverter.ConvertFromString(TrayIconModel.BrandColor(tool, TaskbarTheme.Dark))),
+        };
+        if (SystemParameters.ClientAreaAnimation)
+        {
+            var pulse = new DoubleAnimation(1, 0.35, TimeSpan.FromMilliseconds(800)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever };
+            Timeline.SetDesiredFrameRate(pulse, 20);
+            dot.BeginAnimation(OpacityProperty, pulse);
+        }
+
+        return dot;
     }
 
     /// <summary>The Usage tab (round 5): period tabs, chart, comparison, then the same rows and total as the tray popover.</summary>

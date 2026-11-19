@@ -675,6 +675,17 @@ public sealed class TrayController : IDisposable
         var vm = new IslandViewModel(machine, _store, _usage, _periods, clock, () => _settings.Island, () => _vm.ListedTools);
         var window = new IslandWindow { Left = -4000, Top = 0 };
         var claude = new AgentActivity(Tool.Claude, "demo-claude", clock.Now.AddSeconds(-754), clock.Now.AddMinutes(-60), "claude-opus-5-5");
+        // Round 6 demo: sub-agents under Claude Code (one nested, one done) and one under Copilot.
+        var withSubs = claude with
+        {
+            SubAgents =
+            [
+                new SubAgentActivity(Tool.Claude, "d1", "Explore", "Find where chart clicks are hit-tested", "claude-haiku-5-5", 1, clock.Now.AddSeconds(-72), null, 640_000),
+                new SubAgentActivity(Tool.Claude, "d2", "general-purpose", "Update the popover tests", "claude-opus-5-5", 1, clock.Now.AddSeconds(-245), null, 1_400_000),
+                new SubAgentActivity(Tool.Claude, "d3", "Explore", "List every caller of TrimMemory", "claude-haiku-5-5", 2, clock.Now.AddSeconds(-31), null, 120_000),
+                new SubAgentActivity(Tool.Claude, "d4", "Explore", "Read the island tests", "claude-haiku-5-5", 1, clock.Now.AddSeconds(-400), clock.Now.AddSeconds(-155), 310_000),
+            ],
+        };
         var copilot = new AgentActivity(Tool.Copilot, "demo-copilot", clock.Now.AddSeconds(-95), clock.Now.AddMinutes(-20), "gpt-6.1-sol");
 
         void Save(string name)
@@ -694,6 +705,12 @@ public sealed class TrayController : IDisposable
         Save("2-two-agents");
         machine.Click();
         Save("3-opened");
+        machine.Update([withSubs, copilot with { SubAgents = [new SubAgentActivity(Tool.Copilot, "q", "QA", "Dedicated QA specialist", "gpt-6.1-sol", 1, clock.Now.AddSeconds(-161), null, 520_000)] }], false);
+        Save("3-subagents");
+        machine.Escape();
+        Save("3-subagents-compact");
+        machine.Click();
+        machine.Update([claude, copilot], false);
         // Usage tab (round 5): each period, then one bar drilled into (the last bar with usage this month).
         vm.SelectTab(IslandTab.Usage);
         foreach (var period in Enum.GetValues<Period>())
@@ -820,6 +837,14 @@ public sealed class TrayController : IDisposable
 
         // The opened island's tab, and on the Usage tab the same row format, so island and popover numbers can be compared line by line.
         text.AppendLine($"island-ui: {_islandWindow?.ScreenRects()}");
+        foreach (var a in _island.Working)
+        {
+            foreach (var x in a.Subs)
+            {
+                text.AppendLine($"subagent: {a.Tool}/{a.SessionId} | {x.Name} | {x.Task} | {x.Model} | {x.Tokens} tokens | depth {x.Depth} | {(x.Running ? "running " + Format.Timer(DateTimeOffset.UtcNow - x.StartedUtc) : "done " + Format.Timer(x.EndedUtc!.Value - x.StartedUtc))}");
+            }
+        }
+
         text.AppendLine($"island-tab: {_islandState?.Tab} | period: {_islandState?.Usage?.Period} | label: {_islandState?.Usage?.Label} | compare: {_islandState?.Usage?.ComparisonText ?? "-"}");
         foreach (var r in _islandState?.Usage is { } u ? u.Rows.Append(u.TotalRow).OfType<ToolRowViewModel>() : [])
         {

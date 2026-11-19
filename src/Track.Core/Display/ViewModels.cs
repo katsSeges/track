@@ -295,7 +295,7 @@ public sealed class PopoverViewModel : ObservableObject
 
         var model = s.LastModel is null ? "" : $" · {s.LastModel}";
         var detail = s.Working
-            ? $"{s.ActiveSessions} session{(s.ActiveSessions == 1 ? "" : "s")}{model}"
+            ? $"{s.ActiveSessions} session{(s.ActiveSessions == 1 ? "" : "s")}{(s.SubAgents > 0 ? $" · {s.SubAgents} sub-agent{(s.SubAgents == 1 ? "" : "s")}" : "")}{model}"
             : s.LastActivityUtc is { } last ? $"idle · {Format.Ago(_time.GetUtcNow() - last)}" : "idle";
         return new LiveRowViewModel(tool, name, logo, s.Working, detail);
     }

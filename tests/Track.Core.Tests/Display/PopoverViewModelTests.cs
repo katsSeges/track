@@ -184,6 +184,22 @@ public class PopoverViewModelTests
     }
 
     [Fact]
+    public void Running_sub_agents_count_in_the_tray_row()
+    {
+        AddFixture();
+        var vm = Create();
+        string Detail(int sessions, int subs, string? model)
+        {
+            vm.LiveUpdated(new Dictionary<Tool, LiveStatus> { [Tool.Claude] = new(Tool.Claude, true, sessions, 0, true, model, Now, subs) });
+            return vm.LiveRows.Single(r => r.Tool == Tool.Claude).Detail;
+        }
+
+        Assert.Equal("1 session · 2 sub-agents · claude-opus-5-5", Detail(1, 2, "claude-opus-5-5"));
+        Assert.Equal("2 sessions · 1 sub-agent", Detail(2, 1, null));
+        Assert.Equal("1 session", Detail(1, 0, null));
+    }
+
+    [Fact]
     public void Updated_text_counts_up_from_the_last_refresh()
     {
         var vm = Create();
