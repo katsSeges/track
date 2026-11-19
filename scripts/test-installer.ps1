@@ -29,10 +29,12 @@ function Get-StartupCommand {
     [Microsoft.Win32.Registry]::GetValue('HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run', 'Track', $null)
 }
 
-function Invoke-Setup([string] $LogName) {
-    $args = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=""',
+function Invoke-Setup([string] $LogName, [switch] $DefaultTasks) {
+    # /TASKS="" picks no tasks; -DefaultTasks lets Setup choose them as it would for a user.
+    $setupArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
         "/DIR=`"$target`"", "/GROUP=`"$id`"", "/LOG=`"$(Join-Path $testRoot $LogName)`"")
-    $process = Start-Process $setup -ArgumentList $args -Wait -PassThru
+    if (-not $DefaultTasks) { $setupArgs += '/TASKS=""' }
+    $process = Start-Process $setup -ArgumentList $setupArgs -Wait -PassThru
     Assert ($process.ExitCode -eq 0) "Setup failed ($($process.ExitCode)); see $testRoot"
 }
 
@@ -107,6 +109,13 @@ try {
     $saved = Get-Content $settings -Raw | ConvertFrom-Json
     Assert ($saved.startWithWindows -eq $false) 'Upgrade did not persist unchecked startup.'
     Assert ($saved.refreshSeconds -eq 45 -and $saved.future.label -eq 'keep' -and $saved.future.items.Count -eq 2) 'Upgrade lost unrelated settings.'
+
+    # Upgrade without /TASKS: Track was used here and has no startup entry, so the user turned startup off.
+    # Setup must keep it off (a new install would default to on; that path is not run, as it enables startup).
+    Invoke-Setup 'upgrade-default.log' -DefaultTasks
+    $saved = Get-Content $settings -Raw | ConvertFrom-Json
+    Assert ($saved.startWithWindows -eq $false -and $saved.refreshSeconds -eq 45) 'Default upgrade turned startup on or lost settings.'
+    Assert ($null -eq (Get-StartupCommand)) 'Default upgrade created a startup entry.'
     $beforeUninstall = Get-Content $settings -Raw
     Invoke-Uninstall
     Assert (-not (Test-Path $target)) 'Installed files remain after uninstall.'
@@ -116,7 +125,7 @@ try {
     Assert ((Get-Content (Join-Path $data 'usage-sentinel.txt') -Raw).Trim() -eq 'keep usage') 'Uninstall removed usage data.'
     Assert ($null -eq (Get-StartupCommand)) 'Startup entry changed.'
     $passed = $true
-    Write-Host 'Installer checks passed: fresh install, normal launch with startup off, running-app guard, upgrade, shortcuts, Apps & features and clean uninstall.'
+    Write-Host 'Installer checks passed: fresh install, normal launch with startup off, running-app guard, upgrade (explicit and default tasks), shortcuts, Apps & features and clean uninstall.'
 } finally {
     try {
         if ($app -and -not $app.HasExited) {

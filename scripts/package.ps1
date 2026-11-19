@@ -1,5 +1,6 @@
 # Builds a self-contained Track (no .NET install needed), a ZIP and an Inno Setup installer.
 #   artifacts\Track-<version>-win-x64.zip, Track-<version>-win-x64-setup.exe and a .sha256 for each.
+# Without Inno Setup 6 only the ZIP is built, unless -RequireInstaller (CI and releases) makes that an error.
 # Zip layout (what scripts\install.ps1 expects):
 #   Track-<version>-win-x64\publish\Track.exe
 #   Track-<version>-win-x64\scripts\install.ps1, uninstall.ps1
@@ -7,7 +8,8 @@
 # Used by .github/workflows/release.yml; runs the same locally.
 param(
     [string] $Version,
-    [string] $IsccPath
+    [string] $IsccPath,
+    [switch] $RequireInstaller
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -26,8 +28,11 @@ if (-not $IsccPath) {
         $IsccPath = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
     }
 }
-if (-not (Test-Path -LiteralPath $IsccPath -PathType Leaf)) {
-    throw 'Inno Setup 6 is required. Install it from https://jrsoftware.org/isdl.php or pass -IsccPath <path-to-ISCC.exe>.'
+$buildInstaller = Test-Path -LiteralPath $IsccPath -PathType Leaf
+if (-not $buildInstaller) {
+    $missing = 'Inno Setup 6 was not found. Install it from https://jrsoftware.org/isdl.php or pass -IsccPath <path-to-ISCC.exe>.'
+    if ($RequireInstaller) { throw $missing }
+    Write-Warning "$missing Building only the ZIP."
 }
 
 $name = "Track-$Version-win-x64"
@@ -63,6 +68,7 @@ $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 "$hash  $name.zip" | Set-Content "$zip.sha256" -Encoding ascii -NoNewline
 Write-Host "Package: $zip ($([math]::Round((Get-Item $zip).Length / 1MB, 1)) MB), sha256 $hash"
 
+if (-not $buildInstaller) { return }
 & $IsccPath /Qp "/DAppVersion=$Version" "/DPublishDir=$(Join-Path $stage 'publish')" "/DOutputDir=$artifacts" `
     (Join-Path $PSScriptRoot 'installer\Track.iss')
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed ($LASTEXITCODE)" }

@@ -9,7 +9,7 @@
     <ApplicationIcon>Assets\track.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Product>Track</Product>
-    <Version>1.1.1</Version>
+    <Version>1.2.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- A small always-on tray app: favor low memory over throughput. -->
     <ServerGarbageCollection>false</ServerGarbageCollection>

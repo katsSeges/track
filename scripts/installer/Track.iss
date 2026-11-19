@@ -42,7 +42,7 @@ RestartApplications=no
 UsePreviousTasks=no
 
 [Tasks]
-Name: "startup"; Description: "Start Track when Windows starts"; Flags: unchecked
+Name: "startup"; Description: "Start Track when Windows starts"
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
@@ -75,31 +75,43 @@ begin
       RaiseException('Could not remove the Track startup entry.');
 end;
 
+function SettingsFile: String;
+var
+  DataDir: String;
+begin
+  DataDir := GetEnv('TRACK_DATA');
+  if DataDir = '' then
+    DataDir := ExpandConstant('{localappdata}\Track');
+  Result := AddBackslash(DataDir) + 'settings.json';
+end;
+
 procedure InitializeWizard;
 var
   Command: String;
 begin
-  { Read the live entry, not a stale selection from a previous installation. }
-  if (ExpandConstant('{param:TASKS|#}') = '#') and
-     (ExpandConstant('{param:MERGETASKS|#}') = '#') and
-     RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Track', Command) then
-    WizardSelectTasks('startup');
+  { Startup is on for a new install, like the app's own default. On an upgrade the live entry decides,
+    not a stale selection from a previous installation: Track already used here without an entry means
+    the user turned startup off. /TASKS and /MERGETASKS still override. }
+  if (ExpandConstant('{param:TASKS|#}') = '#') and (ExpandConstant('{param:MERGETASKS|#}') = '#') then
+  begin
+    if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Track', Command) then
+      WizardSelectTasks('startup')
+    else if FileExists(SettingsFile) then
+      WizardSelectTasks('!startup');
+  end;
 end;
 
 function SaveStartupPreference(ValidateOnly: Boolean): String;
 var
-  DataDir, Params, ErrorFile: String;
+  Params, ErrorFile: String;
   ErrorText: AnsiString;
   ExitCode: Integer;
 begin
   Result := '';
-  DataDir := GetEnv('TRACK_DATA');
-  if DataDir = '' then
-    DataDir := ExpandConstant('{localappdata}\Track');
   ErrorFile := ExpandConstant('{tmp}\track-settings-error.txt');
   Params := '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
     ExpandConstant('{tmp}\Set-StartupPreference.ps1') + '" -SettingsPath "' +
-    AddBackslash(DataDir) + 'settings.json" -Enabled ';
+    SettingsFile + '" -Enabled ';
   if WizardIsTaskSelected('startup') then
     Params := Params + 'true'
   else

@@ -34,19 +34,19 @@
 
 ## Install
 
-1. Download `Track-<version>-win-x64-setup.exe` from [Releases](https://github.com/katsSeges/track/releases/latest) and run it.
-2. Choose whether to **Start Track when Windows starts** and create a desktop shortcut, then install.
-3. Leave **Launch Track** checked to start using it right away.
+Download `Track-<version>-win-x64-setup.exe` from [Releases](https://github.com/katsSeges/track/releases/latest) and run it.
+No admin rights or .NET needed. Track starts right away and with Windows (turn that off in the tray menu).
 
-Setup installs just for you in `%LOCALAPPDATA%\Programs\Track`, without administrator rights, and adds a Start menu shortcut.
-Change startup later from **Start with Windows** in the tray menu. To upgrade, run the newer installer; if Track is running,
-Setup asks you to close it before continuing. Uninstall from Windows **Settings > Apps > Installed apps**
-(**Apps & features** on Windows 10). Your settings and usage data in `%LOCALAPPDATA%\Track` are kept.
+<details>
+<summary><b>Upgrade, uninstall, ZIP</b></summary>
 
-The ZIP is still available: unzip `Track-<version>-win-x64.zip` and run `publish\Track.exe` directly, or run
-`powershell -ExecutionPolicy Bypass -File scripts\install.ps1` to install with startup enabled.
-For a script-based installation, use `scripts\uninstall.ps1` to remove it. Each download has a `.sha256` checksum.
-The installer is not code-signed yet, so Windows SmartScreen may show an unrecognized-app warning.
+- **Upgrade:** run the newer installer. Close Track first if Setup asks.
+- **Uninstall:** Windows **Settings > Apps > Installed apps**. Your settings and usage data are kept.
+- **ZIP instead:** unzip `Track-<version>-win-x64.zip` and run `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`
+  (`scripts\uninstall.ps1` removes it).
+- The installer isn't code-signed yet, so SmartScreen may warn: choose **More info > Run anyway**.
+
+</details>
 
 ## Private by design
 

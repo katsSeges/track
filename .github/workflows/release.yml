@@ -26,18 +26,13 @@ jobs:
         shell: pwsh
         run: ./scripts/test.ps1
 
-      - name: Install Inno Setup
+      - name: Install Inno Setup (pinned, hash-checked)
         shell: pwsh
-        run: |
-          $installer = Join-Path $env:RUNNER_TEMP 'innosetup.exe'
-          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_4/innosetup-6.7.4.exe' -OutFile $installer
-          if ((Get-AuthenticodeSignature $installer).Status -ne 'Valid') { throw 'Invalid Inno Setup signature' }
-          $process = Start-Process $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/ALLUSERS' -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed ($($process.ExitCode))" }
+        run: ./scripts/installer/Install-InnoSetup.ps1
 
       - name: Package
         shell: pwsh
-        run: ./scripts/package.ps1 -Version ('${{ github.ref_name }}'.TrimStart('v'))
+        run: ./scripts/package.ps1 -Version ('${{ github.ref_name }}'.TrimStart('v')) -RequireInstaller
 
       - name: Verify installer lifecycle (isolated per-user install)
         shell: pwsh
