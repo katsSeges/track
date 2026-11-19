@@ -79,10 +79,12 @@ public class ProviderCatalogTests
     public void OpenCode_database_configuration_resolves_default_relative_absolute_and_memory_paths()
     {
         var oldXdgDataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        var oldAppData = Environment.GetEnvironmentVariable("APPDATA");
         var oldDatabase = Environment.GetEnvironmentVariable("OPENCODE_DB");
         try
         {
             Environment.SetEnvironmentVariable("XDG_DATA_HOME", null);
+            Environment.SetEnvironmentVariable("APPDATA", null);
             Environment.SetEnvironmentVariable("OPENCODE_DB", null);
             var defaultSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
             Assert.Equal((Path.Combine(@"C:\home", ".local", "share", "opencode"), "opencode*.db*"),
@@ -93,6 +95,13 @@ public class ProviderCatalogTests
             var xdgSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
             Assert.Equal((Path.Combine(@"C:\home\data", "opencode"), "opencode*.db*"), (xdgSource.Root, xdgSource.Pattern));
 
+            Environment.SetEnvironmentVariable("XDG_DATA_HOME", null);
+            Environment.SetEnvironmentVariable("APPDATA", @"C:\home\AppData\Roaming");
+            var appDataSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
+            Assert.Equal((Path.Combine(@"C:\home\AppData\Roaming", "opencode"), "opencode*.db*"),
+                (appDataSource.Root, appDataSource.Pattern));
+
+            Environment.SetEnvironmentVariable("XDG_DATA_HOME", @"C:\home\data");
             Environment.SetEnvironmentVariable("OPENCODE_DB", "custom.db");
             var relativeSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
             Assert.Equal((Path.Combine(@"C:\home\data", "opencode"), "custom.db*"), (relativeSource.Root, relativeSource.Pattern));
@@ -107,6 +116,7 @@ public class ProviderCatalogTests
         finally
         {
             Environment.SetEnvironmentVariable("XDG_DATA_HOME", oldXdgDataHome);
+            Environment.SetEnvironmentVariable("APPDATA", oldAppData);
             Environment.SetEnvironmentVariable("OPENCODE_DB", oldDatabase);
         }
     }

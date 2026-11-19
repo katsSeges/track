@@ -191,6 +191,7 @@ public class LiveStatusDetectorTests
             [Tool.Claude] = new(Tool.Claude, false, 0, 0, true, "claude-opus-5-5", at),
             [Tool.Codex] = new(Tool.Codex, true, 1, 0, true, null, at),
             [Tool.Copilot] = new(Tool.Copilot, false, 0, 2, false, null, null),
+            [Tool.Gemini] = new(Tool.Gemini, true, 1, 0, true, "gemini-2.5-flash", at),
         };
         Track.Core.Activity.AgentActivity Agent(Tool tool, string id) => new(tool, id, at, at, null);
 
@@ -199,5 +200,6 @@ public class LiveStatusDetectorTests
         Assert.Equal(live[Tool.Claude] with { Working = true, ActiveSessions = 2 }, shared[Tool.Claude]);
         Assert.Equal(live[Tool.Codex] with { Working = false, ActiveSessions = 0 }, shared[Tool.Codex]);
         Assert.Equal(live[Tool.Copilot], shared[Tool.Copilot]);
+        Assert.Equal(live[Tool.Gemini], shared[Tool.Gemini]);
     }
 }

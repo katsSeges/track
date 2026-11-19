@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using System.Text.RegularExpressions;
+using Track.Core.Activity;
 using Track.Core.Ingest;
 using Track.Core.Providers;
 using Track.Core.Usage;
@@ -76,7 +77,13 @@ public sealed partial class LiveStatusDetector(
         live.ToDictionary(p => p.Key, p =>
         {
             var mine = working.Where(a => a.Tool == p.Key).ToList();
-            return p.Value with { Working = mine.Count > 0, ActiveSessions = mine.Count, SubAgents = mine.Sum(a => a.Subs.Count(s => s.Running)) };
+            var detailed = ActivityParsers.HasDetailedActivity(p.Key);
+            return p.Value with
+            {
+                Working = mine.Count > 0 || (!detailed && p.Value.Working),
+                ActiveSessions = detailed ? mine.Count : Math.Max(mine.Count, p.Value.ActiveSessions),
+                SubAgents = mine.Sum(a => a.Subs.Count(s => s.Running)),
+            };
         });
 
     /// <summary>Copilot sessions with an <c>inuse.&lt;pid&gt;.hold</c> file whose process is alive.</summary>

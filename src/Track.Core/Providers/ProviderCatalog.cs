@@ -80,6 +80,11 @@ public static class ProviderCatalog
         var dataRoot = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
         if (string.IsNullOrWhiteSpace(dataRoot))
         {
+            dataRoot = Environment.GetEnvironmentVariable("APPDATA");
+        }
+
+        if (string.IsNullOrWhiteSpace(dataRoot))
+        {
             dataRoot = Path.Combine(home, ".local", "share");
         }
 
