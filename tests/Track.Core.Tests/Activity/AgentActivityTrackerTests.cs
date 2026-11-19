@@ -33,6 +33,33 @@ public class AgentActivityTrackerTests
         Assert.Empty(WorkingAt(TimeSpan.FromMinutes(3)));
     }
 
+    [Theory]
+    [InlineData(ActivityKind.TurnStart)]
+    [InlineData(ActivityKind.StepStart)]
+    [InlineData(ActivityKind.WaitEnd)]
+    [InlineData(ActivityKind.TurnEnd)]
+    [InlineData(ActivityKind.WaitStart)]
+    [InlineData(ActivityKind.StepEnd)]
+    public void A_line_from_before_the_current_task_neither_moves_its_timer_back_nor_ends_it(ActivityKind kind)
+    {
+        // Real case: prompt at 11:22:26, then the compaction summary stamped 09:53:10 (the conversation's first time).
+        Apply(ActivityKind.TurnStart, TimeSpan.FromMinutes(90));
+        Apply(kind, TimeSpan.FromMinutes(1));
+
+        var a = Assert.Single(WorkingAt(TimeSpan.FromMinutes(91)));
+        Assert.Equal(T0.AddMinutes(90), a.TurnStartedUtc);
+        Assert.Equal(T0.AddMinutes(1), a.SessionStartedUtc); // the session did exist back then
+    }
+
+    [Fact]
+    public void An_older_line_still_reports_the_model()
+    {
+        Apply(ActivityKind.TurnStart, TimeSpan.FromMinutes(5));
+        Apply(ActivityKind.ModelSeen, TimeSpan.FromMinutes(1), model: "claude-opus-5-5");
+
+        Assert.Equal("claude-opus-5-5", Assert.Single(WorkingAt(TimeSpan.FromMinutes(6))).Model);
+    }
+
     [Fact]
     public void Session_start_is_the_earliest_event_seen()
     {

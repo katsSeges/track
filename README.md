@@ -36,14 +36,19 @@
 
 ## Install
 
-1. Download `Track-<version>-win-x64.zip` from [Releases](https://github.com/katsSeges/track/releases/latest) and unzip it.
-2. In that folder, run:
+Download `Track-<version>-win-x64-setup.exe` from [Releases](https://github.com/katsSeges/track/releases/latest) and run it.
+No admin rights or .NET needed. Track starts right away and with Windows (turn that off in the tray menu).
 
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
-   ```
+<details>
+<summary><b>Upgrade, uninstall, ZIP</b></summary>
 
-Track starts now and with Windows. To remove it, run `scripts\uninstall.ps1` the same way.
+- **Upgrade:** run the newer installer. Close Track first if Setup asks.
+- **Uninstall:** Windows **Settings > Apps > Installed apps**. Your settings and usage data are kept.
+- **ZIP instead:** unzip `Track-<version>-win-x64.zip` and run `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`
+  (`scripts\uninstall.ps1` removes it).
+- The installer isn't code-signed yet, so SmartScreen may warn: choose **More info > Run anyway**.
+
+</details>
 
 ## Private by design
 
