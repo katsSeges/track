@@ -46,8 +46,34 @@ To release:
 2. Add `docs/release-notes/v<version>.md`.
 3. Push, wait for CI, then push a matching tag: `git tag v1.2.3; git push origin v1.2.3`.
 
-`.github/workflows/release.yml` then builds, tests, runs `scripts\package.ps1` (self-contained win-x64 zip plus
-`.sha256`) and publishes the GitHub release. `scripts\package.ps1` runs the same locally and writes to `artifacts\`.
+`.github/workflows/release.yml` then builds, tests, installs Inno Setup 6, runs `scripts\package.ps1` and
+publishes the ZIP, Setup EXE and a `.sha256` for each. No .NET runtime installation is needed for either download.
+
+To package locally, install [Inno Setup 6](https://jrsoftware.org/isdl.php), then run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1
+# If ISCC.exe is not on PATH or in the standard Inno Setup 6 folder:
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -IsccPath 'C:\Tools\Inno Setup 6\ISCC.exe'
+```
+
+Outputs are `artifacts\Track-<version>-win-x64.zip`, `artifacts\Track-<version>-win-x64-setup.exe` and their
+checksums. `scripts\installer\Track.iss` defines the per-user installer: Start menu shortcut, optional desktop
+shortcut and startup, finish-page launch, and an Apps & features uninstall entry. A running Track must be
+closed before setup or uninstall continues (the app's existing single-instance mutex is checked).
+The startup checkbox reflects the live Run entry on upgrades, rather than a stale previous installer selection.
+Setup writes the same quoted `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` value named `Track` as the tray
+toggle and updates only `startWithWindows` in the saved settings, preserving other fields. Invalid settings JSON
+stops installation with an error instead of discarding it. Startup entries pointing at another installation
+are not removed when startup is unchecked or during uninstall. Uninstall always keeps settings and usage data.
+`TRACK_DATA` is honored by setup, just as by the app. The Setup EXE is currently unsigned.
+
+After packaging, run `scripts\test-installer.ps1 -IsccPath '<path-to-ISCC.exe>'` from a clean Windows test
+account (no running Track or existing Track startup entry). It compiles the same installer with a unique
+test AppId, uses temporary install/data folders and a separate Start menu group, and leaves startup disabled.
+It checks invalid-settings refusal, fresh install, normal app launch (without `--no-startup`), running-app
+protection, upgrade/settings preservation, shortcut/uninstall registration, and clean uninstall with data
+retained. Test files and registration are cleaned up afterward. The release workflow runs this before publishing.
 
 ## Verification switches
 
