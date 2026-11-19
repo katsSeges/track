@@ -54,7 +54,7 @@ Name: "{group}\Track"; Filename: "{app}\Track.exe"
 Name: "{autodesktop}\Track"; Filename: "{app}\Track.exe"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Track"; ValueData: """{app}\Track.exe"""; Tasks: startup
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Track"; ValueData: """{app}\Track.exe"""; Check: StartupWanted
 
 [Run]
 Filename: "{app}\Track.exe"; Description: "Launch Track"; Flags: nowait postinstall skipifsilent
@@ -85,20 +85,46 @@ begin
   Result := AddBackslash(DataDir) + 'settings.json';
 end;
 
+var
+  DefaultStartup, StartupDefaultApplied: Boolean;
+
+function TasksGiven: Boolean;
+begin
+  Result := (ExpandConstant('{param:TASKS|#}') <> '#') or (ExpandConstant('{param:MERGETASKS|#}') <> '#');
+end;
+
 procedure InitializeWizard;
 var
   Command: String;
 begin
-  { Startup is on for a new install, like the app's own default. On an upgrade the live entry decides,
-    not a stale selection from a previous installation: Track already used here without an entry means
-    the user turned startup off. /TASKS and /MERGETASKS still override. }
-  if (ExpandConstant('{param:TASKS|#}') = '#') and (ExpandConstant('{param:MERGETASKS|#}') = '#') then
+  { Startup is on for a new install, like the app's own default. On an upgrade the live entry decides, not a
+    stale selection from a previous installation: Track already used here without an entry means the user
+    turned startup off. Decided once, before Setup changes anything. }
+  DefaultStartup := RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Track', Command)
+    or not FileExists(SettingsFile);
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  { Inno builds the task list when this page is reached, so the default is applied here, not in InitializeWizard. }
+  { Once: going Back and Next again keeps what the user picked. }
+  if (CurPageID = wpSelectTasks) and not TasksGiven and not StartupDefaultApplied then
   begin
-    if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Track', Command) then
+    StartupDefaultApplied := True;
+    if DefaultStartup then
       WizardSelectTasks('startup')
-    else if FileExists(SettingsFile) then
+    else
       WizardSelectTasks('!startup');
   end;
+end;
+
+{ The checkbox when the user saw it or /TASKS chose; otherwise (a silent upgrade) the default above. }
+function StartupWanted: Boolean;
+begin
+  if TasksGiven or not WizardSilent then
+    Result := WizardIsTaskSelected('startup')
+  else
+    Result := DefaultStartup;
 end;
 
 function SaveStartupPreference(ValidateOnly: Boolean): String;
@@ -112,7 +138,7 @@ begin
   Params := '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
     ExpandConstant('{tmp}\Set-StartupPreference.ps1') + '" -SettingsPath "' +
     SettingsFile + '" -Enabled ';
-  if WizardIsTaskSelected('startup') then
+  if StartupWanted then
     Params := Params + 'true'
   else
     Params := Params + 'false';
@@ -148,7 +174,7 @@ begin
     Error := SaveStartupPreference(False);
     if Error <> '' then
       RaiseException(Error);
-    if not WizardIsTaskSelected('startup') then
+    if not StartupWanted then
       RemoveOwnedStartupEntry;
   end;
 end;

@@ -56,3 +56,18 @@ jobs:
         shell: pwsh
         run: ./scripts/test-installer.ps1 -IsccPath "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
 
+      - name: Collect installer test logs
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer-logs | Out-Null
+          Get-ChildItem $env:TEMP -Directory -Filter 'TrackInstallerTest-*' | ForEach-Object {
+            Get-ChildItem $_.FullName -Filter *.log | Copy-Item -Destination installer-logs }
+
+      - name: Upload installer test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-test-logs
+          path: installer-logs
+          if-no-files-found: ignore
