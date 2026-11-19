@@ -94,6 +94,61 @@ public sealed record BehaviorSettings
     public bool HotkeyEnabled { get; init; } = true;
 
     public string HotkeyGesture { get; init; } = "Ctrl+Alt+Shift+T";
+
+    public BudgetSettings Budget { get; init; } = new();
+}
+
+public enum BudgetPeriod
+{
+    Day,
+    Month,
+}
+
+public sealed record BudgetThreshold(decimal? Spend, long? Tokens)
+{
+    public static readonly BudgetThreshold Empty = new(null, null);
+}
+
+public sealed record BudgetSettings
+{
+    public bool Enabled { get; init; }
+
+    public BudgetPeriod Period { get; init; } = BudgetPeriod.Day;
+
+    public BudgetThreshold Total { get; init; } = BudgetThreshold.Empty;
+
+    public Dictionary<Tool, BudgetThreshold> Providers { get; init; } = [];
+
+    public BudgetThreshold For(Tool? tool) => tool is { } provider && Providers.TryGetValue(provider, out var threshold)
+        ? threshold
+        : tool is null ? Total : BudgetThreshold.Empty;
+
+    public BudgetSettings WithThreshold(Tool? tool, BudgetThreshold threshold) => tool is null
+        ? this with { Total = threshold }
+        : this with { Providers = new Dictionary<Tool, BudgetThreshold>(Providers) { [tool.Value] = threshold } };
+
+    public bool Equals(BudgetSettings? other) =>
+        other is not null
+        && Enabled == other.Enabled
+        && Period == other.Period
+        && Total == other.Total
+        && Providers.Count == other.Providers.Count
+        && Providers.All(pair => other.Providers.TryGetValue(pair.Key, out var value) && pair.Value == value);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Enabled);
+        hash.Add(Period);
+        hash.Add(Total);
+        foreach (var pair in Providers.OrderBy(pair => pair.Key))
+        {
+            hash.Add(pair.Key);
+            hash.Add(pair.Value);
+        }
+
+        return hash.ToHashCode();
+    }
 }
 
 public sealed record ProviderSettings
@@ -114,6 +169,8 @@ public sealed record ProviderSettings
 
     public ProviderMode Ollama { get; set; } = ProviderMode.Off;
 
+    public Dictionary<Tool, string> ChatTargets { get; set; } = [];
+
     public ProviderMode ModeFor(Tool tool) => tool switch
     {
         Tool.Claude => Claude,
@@ -126,6 +183,44 @@ public sealed record ProviderSettings
         Tool.Ollama => Ollama,
         _ => throw new ArgumentOutOfRangeException(nameof(tool), tool, "Unknown tool."),
     };
+
+    public string? ChatTargetFor(Tool tool) => ChatTargets.TryGetValue(tool, out var target) ? target : null;
+
+    public ProviderSettings WithChatTarget(Tool tool, string target) =>
+        this with { ChatTargets = new Dictionary<Tool, string>(ChatTargets) { [tool] = target } };
+
+    public bool Equals(ProviderSettings? other) =>
+        other is not null
+        && Claude == other.Claude
+        && Codex == other.Codex
+        && Copilot == other.Copilot
+        && Gemini == other.Gemini
+        && OpenCode == other.OpenCode
+        && Cline == other.Cline
+        && Roo == other.Roo
+        && Ollama == other.Ollama
+        && ChatTargets.Count == other.ChatTargets.Count
+        && ChatTargets.All(pair => other.ChatTargets.TryGetValue(pair.Key, out var value) && pair.Value == value);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Claude);
+        hash.Add(Codex);
+        hash.Add(Copilot);
+        hash.Add(Gemini);
+        hash.Add(OpenCode);
+        hash.Add(Cline);
+        hash.Add(Roo);
+        hash.Add(Ollama);
+        foreach (var pair in ChatTargets.OrderBy(pair => pair.Key))
+        {
+            hash.Add(pair.Key);
+            hash.Add(pair.Value);
+        }
+
+        return hash.ToHashCode();
+    }
 
     public ProviderSettings WithMode(Tool tool, ProviderMode mode) => tool switch
     {
