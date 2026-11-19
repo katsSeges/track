@@ -1,7 +1,7 @@
 <h1 align="center">Track</h1>
 
 <p align="center">
-  <b>See what Claude Code, Codex and GitHub Copilot are doing, and what they cost, right from your Windows tray.</b>
+  <b>See what Claude Code, Codex, Copilot, Gemini CLI, OpenCode, Cline and Roo Code are doing, and what they cost, right from your Windows tray.</b>
 </p>
 
 <p align="center">
@@ -21,9 +21,11 @@
 
 ## What it does
 
-- **Who is working.** The Claude, Codex and Copilot marks in your tray light up while an agent works.
-- **What it costs.** Tokens and an estimated price for today, this week and this month, with a chart per hour or day.
+- **Who is working.** Provider marks in your tray light up while an agent works. Providers with recent usage or live activity appear automatically; you can also turn providers on or off in Settings.
+- **What it costs.** Tokens and an estimated price for today, this week and this month, with adaptive charts for enabled providers.
 - **Long tasks at a glance.** A small black island at the top of the screen shows each running agent, its timer, and the sub-agents it started.
+- **More agents.** Gemini CLI, OpenCode, Cline and Roo Code too; Ollama shows what it is running. Each one is Auto, On or Off in Settings.
+- **More detail.** Analytics shows 7, 30 or 90 days (or your own range) per provider, with models, sessions, your busiest hours and a CSV export.
 
 <table>
   <tr>
@@ -50,20 +52,30 @@ No admin rights or .NET needed. Track starts right away and with Windows (turn t
 
 ## Private by design
 
-Track only reads the agents' own log files on your computer. Nothing is sent anywhere; the one network request
-is a daily download of the public LiteLLM price list.
+Track reads provider logs locally. It does not upload your usage. It downloads the public LiteLLM price list daily
+for cost estimates. If you explicitly enable Ollama, Track checks its status only through the local
+`127.0.0.1:11434/api/ps` endpoint; Ollama is status-only and has no token accounting.
 
 | Agent | Logs |
 |---|---|
 | Claude Code | `%USERPROFILE%\.claude\projects` |
 | Codex | `%USERPROFILE%\.codex\sessions` |
 | GitHub Copilot | `%USERPROFILE%\.copilot\session-state` |
+| Gemini CLI | `%USERPROFILE%\.gemini\tmp` |
+| OpenCode | `%USERPROFILE%\.local\share\opencode\opencode.db` (or `XDG_DATA_HOME` / `OPENCODE_DB`) |
+| Cline | `%APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\tasks` |
+| Roo Code | `%APPDATA%\Code\User\globalStorage\RooVeterinaryInc.roo-cline\tasks` |
+| Ollama | No logs; optional local running/loaded-model status only |
 
 <details>
 <summary><b>Tips</b></summary>
 
 - Left-click the tray icon for the popover. Hover a tool to see its models.
+- Click a provider row (or press Enter while it is focused) to open its detected chat app. Override the app per provider in Settings.
+- Open Settings from the tray menu or the popover gear: theme, notifications (off until you turn them on), a keyboard shortcut for the popover, and each provider's colors and chat app.
+- Set a spend or token limit per day or month under **Alerts** (`120k` and `1.5M` work); you get one notification per limit.
 - Click a bar in a chart to see just that hour or day; click it again to go back. The **−** next to the chart hides it.
+- Open **Analytics** from the tray menu or the popover's footer. A session counts in full when any of it falls in the range.
 - Click the island to open it: **Now** lists the agents and sub-agents, **Usage** has the charts.
 - The **–** button on the island tucks it away while agents keep working. Rest the mouse on the top edge to peek.
 - When an agent finishes, the island says "done"; when Copilot asks you something, it says "needs you".
@@ -75,6 +87,8 @@ is a daily download of the public LiteLLM price list.
 
 Prices are API-equivalent estimates from LiteLLM's public list prices, not your bill: Claude, ChatGPT and
 Copilot subscriptions are not charged per token. Models without a public price count their tokens but show `$—`.
+Analytics is limited to 90 days. Session totals and observed spans cover the full session; they are not prorated to
+the selected range, and older per-session history already pruned by Track 1.1 cannot be reconstructed.
 
 </details>
 

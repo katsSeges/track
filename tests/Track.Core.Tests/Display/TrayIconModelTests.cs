@@ -1,11 +1,13 @@
 using Track.Core.Settings;
 using Track.Core.Tray;
+using Track.Core.Providers;
 
 namespace Track.Core.Tests.Display;
 
 public class TrayIconModelTests
 {
     private static readonly HashSet<Tool> All = [Tool.Claude, Tool.Codex, Tool.Copilot];
+    private static readonly HashSet<Tool> AllProviders = ProviderCatalog.Order.ToHashSet();
     private static readonly HashSet<Tool> None = [];
 
     private static TrayIconSpec Build(
@@ -93,6 +95,16 @@ public class TrayIconModelTests
     [InlineData(Tool.Codex, TaskbarTheme.Dark, "#E4E4EA")]
     [InlineData(Tool.Copilot, TaskbarTheme.Light, "#7A4FD6")]
     [InlineData(Tool.Copilot, TaskbarTheme.Dark, "#A98BFF")]
+    [InlineData(Tool.Gemini, TaskbarTheme.Light, "#4285F4")]
+    [InlineData(Tool.Gemini, TaskbarTheme.Dark, "#8AB4F8")]
+    [InlineData(Tool.OpenCode, TaskbarTheme.Light, "#2D6A4F")]
+    [InlineData(Tool.OpenCode, TaskbarTheme.Dark, "#6FCF97")]
+    [InlineData(Tool.Cline, TaskbarTheme.Light, "#0B8F87")]
+    [InlineData(Tool.Cline, TaskbarTheme.Dark, "#55DAD0")]
+    [InlineData(Tool.Roo, TaskbarTheme.Light, "#A74BC8")]
+    [InlineData(Tool.Roo, TaskbarTheme.Dark, "#D38AE8")]
+    [InlineData(Tool.Ollama, TaskbarTheme.Light, "#454545")]
+    [InlineData(Tool.Ollama, TaskbarTheme.Dark, "#E4E4EA")]
     public void Brand_colors_follow_the_mockup_for_each_taskbar_theme(Tool tool, TaskbarTheme theme, string color)
     {
         Assert.Equal(color, TrayIconModel.BrandColor(tool, theme));
@@ -102,6 +114,26 @@ public class TrayIconModelTests
     public void Tooltip_names_every_running_tool()
     {
         Assert.Equal("Track · Claude Code, Codex, Copilot running", Build(All, All).Tooltip);
+    }
+
+    [Fact]
+    public void Overflow_caps_marks_at_three_and_prioritizes_running_providers()
+    {
+        var running = new HashSet<Tool> { Tool.Gemini, Tool.Cline, Tool.Roo, Tool.Ollama };
+
+        var spec = Build(AllProviders, running);
+
+        Assert.Equal(TrayIconModel.MaximumMarks, spec.Shapes.Count);
+        Assert.Equal([Tool.Gemini, Tool.Cline, Tool.Roo], spec.Shapes.Select(shape => shape.Tool!.Value));
+        Assert.Equal("Track · Gemini CLI, Cline, Roo Code, Ollama running", spec.Tooltip);
+    }
+
+    [Fact]
+    public void Running_hidden_providers_do_not_appear_in_the_tray_tooltip()
+    {
+        var spec = Build(new HashSet<Tool> { Tool.Claude }, new HashSet<Tool> { Tool.Claude, Tool.Ollama });
+
+        Assert.Equal("Track · Claude Code running", spec.Tooltip);
     }
 
     [Fact]

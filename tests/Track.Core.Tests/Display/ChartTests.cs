@@ -52,6 +52,32 @@ public class ChartTests
     }
 
     [Fact]
+    public void Chart_omits_hidden_and_status_only_providers_from_totals_and_tooltips()
+    {
+        var start = new DateTimeOffset(2026, 11, 18, 12, 0, 0, TimeSpan.Zero);
+        var perTool = Enum.GetValues<Tool>().ToDictionary(tool => tool, _ => UsageTotals.Empty);
+        perTool[Tool.Claude] = new UsageTotals(new TokenCounts(10, 0, 0, 0, 0, 1), 0, 10);
+        perTool[Tool.Ollama] = new UsageTotals(new TokenCounts(0, 0, 0, 100, 0, 1), 0, 100);
+        var bucket = new SeriesBucket(
+            0,
+            start,
+            start.AddHours(1),
+            "12:00–13:00",
+            "12",
+            false,
+            true,
+            perTool,
+            perTool.Values.Aggregate(UsageTotals.Empty, (sum, totals) => sum + totals));
+
+        var chart = ChartViewModel.Build(Period.Today, [bucket], null, new HashSet<Tool> { Tool.Claude });
+
+        Assert.Equal("top 10", chart.TopText);
+        Assert.Equal(Tool.Claude, Assert.Single(chart.Bars[0].Segments).Tool);
+        Assert.Contains("Claude Code", chart.Bars[0].Tooltip);
+        Assert.DoesNotContain("Ollama", chart.Bars[0].Tooltip);
+    }
+
+    [Fact]
     public void Axis_labels_on_a_25_hour_day_end_at_24_after_the_last_bar()
     {
         var local = new DateTime(2026, 10, 25, 12, 0, 0);

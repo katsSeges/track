@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Windows;
 using System.Windows.Media;
 using Track.Core;
+using Track.Core.Providers;
 
 namespace Track.App.Shell;
 
@@ -18,6 +19,11 @@ public static class Logos
         [Tool.Claude] = Claude(),
         [Tool.Codex] = Codex(),
         [Tool.Copilot] = Copilot(),
+        [Tool.Gemini] = Gemini(),
+        [Tool.OpenCode] = OpenCode(),
+        [Tool.Cline] = Cline(),
+        [Tool.Roo] = Roo(),
+        [Tool.Ollama] = Ollama(),
     };
 
     public static Geometry For(Tool tool) => Cache[tool];
@@ -33,13 +39,9 @@ public static class Logos
         },
     });
 
-    public static Tool? FromKey(string? key) => key switch
-    {
-        "claude" => Tool.Claude,
-        "codex" => Tool.Codex,
-        "copilot" => Tool.Copilot,
-        _ => null,
-    };
+    public static Tool? FromKey(string? key) => ProviderCatalog.All
+        .FirstOrDefault(provider => string.Equals(provider.LogoKey, key, StringComparison.Ordinal))
+        ?.Id;
 
     private static Geometry Claude()
     {
@@ -80,6 +82,47 @@ public static class Logos
             },
         };
         return Freeze(new CombinedGeometry(GeometryCombineMode.Exclude, head, holes).GetFlattenedPathGeometry());
+    }
+
+    private static Geometry Gemini() =>
+        Freeze(Geometry.Parse("M8,1.2 L9.5,6.5 L14.8,8 L9.5,9.5 L8,14.8 L6.5,9.5 L1.2,8 L6.5,6.5 Z"));
+
+    private static Geometry OpenCode()
+    {
+        var frame = new RectangleGeometry(new Rect(1.5, 2, 13, 12), 2, 2);
+        var prompt = Geometry.Parse("M6,5 L3.5,8 L6,11 M10,5 L12.5,8 L10,11")
+            .GetWidenedPathGeometry(RoundPen(1.2));
+        return Freeze(new CombinedGeometry(GeometryCombineMode.Exclude, frame, prompt).GetFlattenedPathGeometry());
+    }
+
+    private static Geometry Cline() =>
+        Freeze(Geometry.Parse("M12.5,3.8 C6.4,1.5 2,4.2 2,8 C2,11.8 6.4,14.5 12.5,12.2")
+            .GetWidenedPathGeometry(RoundPen(1.8)));
+
+    private static Geometry Roo()
+    {
+        var body = new RectangleGeometry(new Rect(2, 2, 12, 12), 3, 3);
+        var ears = Geometry.Parse("M4,2 L3,0.8 M12,2 L13,0.8").GetWidenedPathGeometry(RoundPen(1.2));
+        var face = Geometry.Parse("M5,6 L5,7 M11,6 L11,7 M6,10 Q8,11.5 10,10").GetWidenedPathGeometry(RoundPen(1));
+        return Freeze(new GeometryGroup { Children = { body, ears, face } });
+    }
+
+    private static Geometry Ollama()
+    {
+        var outer = new EllipseGeometry(new Point(8, 8), 6.5, 6.5);
+        var inner = new EllipseGeometry(new Point(8, 8), 3.2, 3.2);
+        var ring = new CombinedGeometry(GeometryCombineMode.Exclude, outer, inner);
+        var nodes = new GeometryGroup
+        {
+            Children =
+            {
+                new EllipseGeometry(new Point(8, 8), 1.1, 1.1),
+                new EllipseGeometry(new Point(8, 3.2), 1.1, 1.1),
+                new EllipseGeometry(new Point(12.2, 10.4), 1.1, 1.1),
+                new EllipseGeometry(new Point(3.8, 10.4), 1.1, 1.1),
+            },
+        };
+        return Freeze(new GeometryGroup { Children = { ring, nodes } });
     }
 
     private static Pen RoundPen(double width) => new(Brushes.Black, width) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round };

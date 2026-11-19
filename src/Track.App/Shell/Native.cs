@@ -17,12 +17,21 @@ internal static partial class Native
     private const int DwmWindowCornerPreference = 33;
     private const int DwmSystemBackdropType = 38;
     private const int BackdropTransientWindow = 3;
+    internal const int HotkeyMessage = 0x0312;
+    internal const uint HotkeyModAlt = 0x0001;
+    internal const uint HotkeyModControl = 0x0002;
+    internal const uint HotkeyModShift = 0x0004;
+    internal const uint HotkeyModWindows = 0x0008;
+    internal const uint HotkeyModNoRepeat = 0x4000;
     private const int CornerRound = 2;
     private const int GwlExStyle = -20;
     private const int WsExToolWindow = 0x80;
     private const int WsExNoActivate = 0x08000000;
 
-    /// <summary>Acrylic ("transient window") backdrop, rounded corners and dark title colors. False when not supported.</summary>
+    /// <summary>
+    /// The acrylic backdrop of the tray popover, rounded corners and a light or dark title bar, for every Track
+    /// window. False when Windows has no backdrop (then the window draws its solid fallback).
+    /// </summary>
     public static bool ApplyBackdrop(Window window, bool dark)
     {
         var hwnd = new WindowInteropHelper(window).Handle;
@@ -34,7 +43,8 @@ internal static partial class Native
         DwmSetWindowAttribute(hwnd, DwmWindowCornerPreference, ref corner, sizeof(int));
         var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
         DwmExtendFrameIntoClientArea(hwnd, ref margins);
-        return DwmSetWindowAttribute(hwnd, DwmSystemBackdropType, ref backdrop, sizeof(int)) == 0;
+        var result = DwmSetWindowAttribute(hwnd, DwmSystemBackdropType, ref backdrop, sizeof(int));
+        return result == 0;
     }
 
     /// <summary>Never takes focus and stays out of Alt+Tab.</summary>
@@ -120,6 +130,11 @@ internal static partial class Native
 
     public static void DestroyIconHandle(IntPtr handle) => DestroyIcon(handle);
 
+    public static bool RegisterHotkey(IntPtr hwnd, int id, uint modifiers, uint virtualKey) =>
+        RegisterHotKeyNative(hwnd, id, modifiers, virtualKey);
+
+    public static bool UnregisterHotkey(IntPtr hwnd, int id) => UnregisterHotKeyNative(hwnd, id);
+
     /// <summary>Light or dark for app windows (AppsUseLightTheme) or the taskbar (SystemUsesLightTheme).</summary>
     public static TaskbarTheme ReadTheme(bool taskbar)
     {
@@ -154,6 +169,14 @@ internal static partial class Native
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool DestroyIcon(IntPtr handle);
+
+    [LibraryImport("user32.dll", EntryPoint = "RegisterHotKey", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool RegisterHotKeyNative(IntPtr hwnd, int id, uint modifiers, uint virtualKey);
+
+    [LibraryImport("user32.dll", EntryPoint = "UnregisterHotKey", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool UnregisterHotKeyNative(IntPtr hwnd, int id);
 
     [LibraryImport("kernel32.dll")]
     private static partial IntPtr GetCurrentProcess();

@@ -83,8 +83,18 @@ public static class ActivityParsers
         Tool.Claude => new ClaudeActivityParser(fallbackSessionId),
         Tool.Codex => new CodexActivityParser(fallbackSessionId),
         Tool.Copilot => new CopilotActivityParser(fallbackSessionId),
+        Tool.Gemini or Tool.OpenCode or Tool.Cline or Tool.Roo or Tool.Ollama => NoActivityParser.Instance,
         _ => throw new ArgumentOutOfRangeException(nameof(tool), tool, "Unknown tool."),
     };
+
+    public static bool HasDetailedActivity(Tool tool) => tool is Tool.Claude or Tool.Codex or Tool.Copilot;
+
+    private sealed class NoActivityParser : IActivityParser
+    {
+        public static NoActivityParser Instance { get; } = new();
+
+        public IReadOnlyList<ActivityEvent> Parse(string line) => [];
+    }
 }
 
 /// <summary>

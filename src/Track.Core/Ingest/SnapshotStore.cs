@@ -12,6 +12,8 @@ public sealed record Snapshot(
     IReadOnlyList<Snapshot.Session> Sessions,
     IReadOnlyList<FileCursor> Cursors)
 {
+    public IReadOnlyList<DocumentCursor> DocumentCursors { get; init; } = [];
+
     public sealed record Bucket(Tool Tool, string Model, DateTimeOffset HourUtc, TokenCounts Tokens);
 
     public sealed record Session(Tool Tool, string SessionId, SessionUsage Usage);
@@ -46,7 +48,9 @@ public sealed class SnapshotStore(IFileSystem fileSystem, string path)
             }
 
             var snapshot = JsonSerializer.Deserialize(fileSystem.File.ReadAllText(path), SnapshotJson.Default.Snapshot);
-            return snapshot?.Version == CurrentVersion ? snapshot : null;
+            return snapshot?.Version == CurrentVersion
+                ? snapshot with { DocumentCursors = snapshot.DocumentCursors ?? [] }
+                : null;
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {

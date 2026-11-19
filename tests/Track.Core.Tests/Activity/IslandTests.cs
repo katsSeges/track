@@ -409,6 +409,28 @@ public class IslandTests
     }
 
     [Fact]
+    public void Full_opened_island_uses_the_visible_provider_list()
+    {
+        _settings = _settings with { Expanded = IslandExpanded.Full };
+        _island.Update([Agent(Tool.Claude)], false);
+        _island.Click();
+        var store = new UsageStore();
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Copenhagen");
+        var vm = new IslandViewModel(
+            _island,
+            store,
+            new UsageAggregator(store),
+            new PeriodCalculator(_time, zone),
+            _time,
+            () => _settings,
+            () => [Tool.Gemini]);
+
+        var content = vm.Build();
+
+        Assert.Equal([Tool.Gemini], content.Table.Select(row => row.Tool));
+    }
+
+    [Fact]
     public void An_agent_that_stops_to_ask_you_something_needs_you_instead_of_being_done()
     {
         var vm = ViewModel();

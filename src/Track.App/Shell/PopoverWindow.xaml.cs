@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Track.Core;
+using Track.Core.Settings;
 
 namespace Track.App.Shell;
 
@@ -51,6 +52,14 @@ public partial class PopoverWindow : Window
     /// <summary>Raised 150 ms after the pointer rests on a tool row (or at once on keyboard focus).</summary>
     public event Action<Tool, FrameworkElement>? RowHovered;
 
+    public event Action? SettingsRequested;
+
+    public event Action? AnalyticsRequested;
+
+    public event Action<Tool>? ChatLaunchRequested;
+
+    public Func<Tool, string?>? ChatTooltipRequested { get; set; }
+
     /// <summary>Raised when the pointer or focus leaves a row, or the popover hides.</summary>
     public event Action? RowLeft;
 
@@ -59,10 +68,11 @@ public partial class PopoverWindow : Window
 
     public bool Dark { get; set; }
 
+
     public void ApplyBackdrop()
     {
-        var acrylic = Native.ApplyBackdrop(this, Dark);
-        Surface.Background = (Brush)FindResource(acrylic ? "PopBg" : "PopSolid");
+        var supported = Native.ApplyBackdrop(this, Dark);
+        Surface.Background = (Brush)FindResource(supported ? "PopBg" : "PopSolid");
     }
 
     /// <summary>Opens above the tray, right edge near the pointer, inside the work area.</summary>
@@ -88,8 +98,43 @@ public partial class PopoverWindow : Window
     private void Row_MouseEnter(object sender, MouseEventArgs e)
     {
         _pendingRow = (FrameworkElement)sender;
+        if (_pendingRow.Tag is Tool tool)
+        {
+            _pendingRow.ToolTip = ChatTooltipRequested?.Invoke(tool);
+        }
+
         _hoverDelay.Stop();
         _hoverDelay.Start();
+    }
+
+    private void Row_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: Tool tool } row)
+        {
+            ChatLaunchRequested?.Invoke(tool);
+            e.Handled = true;
+        }
+    }
+
+    private void Row_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter && sender is FrameworkElement { Tag: Tool tool } row)
+        {
+            ChatLaunchRequested?.Invoke(tool);
+            e.Handled = true;
+        }
+    }
+
+    private void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsRequested?.Invoke();
+        e.Handled = true;
+    }
+
+    private void Analytics_Click(object sender, RoutedEventArgs e)
+    {
+        AnalyticsRequested?.Invoke();
+        e.Handled = true;
     }
 
     private void Row_MouseLeave(object sender, MouseEventArgs e)
@@ -103,6 +148,7 @@ public partial class PopoverWindow : Window
     {
         if (sender is FrameworkElement { Tag: Tool tool } row)
         {
+            row.ToolTip = ChatTooltipRequested?.Invoke(tool);
             RowHovered?.Invoke(tool, row);
         }
     }

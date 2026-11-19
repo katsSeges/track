@@ -1,4 +1,5 @@
 using Track.Core.Usage;
+using Track.Core.Providers;
 
 namespace Track.Core.Display;
 
@@ -24,19 +25,24 @@ public sealed record ChartViewModel(string Title, IReadOnlyList<ChartBar> Bars, 
 {
     public const double MinimumBarPixels = 1.5;
 
-    private static readonly Tool[] Order = [Tool.Claude, Tool.Codex, Tool.Copilot];
+    private static readonly Tool[] Order = ProviderCatalog.Order.ToArray();
 
-    public static ChartViewModel Build(Period period, IReadOnlyList<SeriesBucket> buckets, DateTimeOffset? selectedStartUtc)
+    public static ChartViewModel Build(
+        Period period,
+        IReadOnlyList<SeriesBucket> buckets,
+        DateTimeOffset? selectedStartUtc,
+        IReadOnlySet<Tool>? visibleTools = null)
     {
-        var top = NiceMax(buckets.Select(b => b.Total.Tokens.Total).DefaultIfEmpty(0).Max());
+        var tools = visibleTools ?? ProviderCatalog.Order.ToHashSet();
+        var top = NiceMax(buckets.Select(b => Totals(b, tools).Tokens.Total).DefaultIfEmpty(0).Max());
         var bars = buckets.Select(b => new ChartBar(
             b.Index,
             b.StartUtc,
-            Segments(b, top),
+            Segments(b, top, tools),
             b.IsCurrent,
             b.IsFuture,
             b.StartUtc == selectedStartUtc,
-            Tooltip(b))).ToList();
+            Tooltip(b, tools))).ToList();
 
         return new ChartViewModel(TitleFor(period), bars, top == 0 ? "no usage yet" : "top " + Format.Tokens(top), AxisLabelsFor(period, buckets));
     }
@@ -71,39 +77,45 @@ public sealed record ChartViewModel(string Title, IReadOnlyList<ChartBar> Bars, 
     public static IReadOnlyList<double> SegmentPixels(ChartBar bar, double chartPixels) =>
         bar.Segments.Select(s => Math.Max(MinimumBarPixels, (s.To - s.From) * chartPixels)).ToList();
 
-    private static IReadOnlyList<ChartSegment> Segments(SeriesBucket bucket, long top)
+    private static IReadOnlyList<ChartSegment> Segments(SeriesBucket bucket, long top, IReadOnlySet<Tool> tools)
     {
-        var tools = Order.Where(t => bucket.PerTool[t].Tokens.Total > 0).OrderByDescending(t => bucket.PerTool[t].Tokens.Total).ToList();
-        var segments = new List<ChartSegment>(tools.Count);
+        var ordered = Order.Where(t => tools.Contains(t) && bucket.PerTool[t].Tokens.Total > 0)
+            .OrderByDescending(t => bucket.PerTool[t].Tokens.Total)
+            .ToList();
+        var segments = new List<ChartSegment>(ordered.Count);
         var from = 0.0;
-        for (var i = 0; i < tools.Count; i++)
+        for (var i = 0; i < ordered.Count; i++)
         {
-            var to = from + ((double)bucket.PerTool[tools[i]].Tokens.Total / top);
-            segments.Add(new ChartSegment(tools[i], from, to));
+            var to = from + ((double)bucket.PerTool[ordered[i]].Tokens.Total / top);
+            segments.Add(new ChartSegment(ordered[i], from, to));
             from = to;
         }
 
         return segments;
     }
 
-    private static string Tooltip(SeriesBucket b)
+    private static string Tooltip(SeriesBucket b, IReadOnlySet<Tool> tools)
     {
         if (b.IsFuture)
         {
             return $"{b.Label}\nnot yet";
         }
 
-        if (b.Total.Tokens.Total == 0)
+        var total = Totals(b, tools);
+        if (total.Tokens.Total == 0)
         {
             return $"{b.Label}\nno usage";
         }
 
         var lines = Order
-            .Where(t => b.PerTool[t].Tokens.Total > 0)
+            .Where(t => tools.Contains(t) && b.PerTool[t].Tokens.Total > 0)
             .OrderByDescending(t => b.PerTool[t].Tokens.Total)
             .Select(t => $"● {ToolNames.Display(t)} {Format.Tokens(b.PerTool[t].Tokens.Total)}");
-        return string.Join("\n", lines.Prepend($"{b.Label} · {Format.Tokens(b.Total.Tokens.Total)} tokens · {Format.Cost(b.Total)}"));
+        return string.Join("\n", lines.Prepend($"{b.Label} · {Format.Tokens(total.Tokens.Total)} tokens · {Format.Cost(total)}"));
     }
+
+    private static UsageTotals Totals(SeriesBucket bucket, IReadOnlySet<Tool> tools) =>
+        tools.Select(tool => bucket.PerTool[tool]).Aggregate(UsageTotals.Empty, (sum, value) => sum + value);
 
     private static IReadOnlyList<AxisLabel> AxisLabelsFor(Period period, IReadOnlyList<SeriesBucket> buckets)
     {

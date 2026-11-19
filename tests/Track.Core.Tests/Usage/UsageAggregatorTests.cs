@@ -25,6 +25,17 @@ public class UsageAggregatorTests
         _store.Add([new UsageRecord(tool, "s", model, at, input, 0, 0, output, 0, "k")]);
 
     [Fact]
+    public void Last_used_is_the_latest_session_activity_of_that_tool()
+    {
+        Assert.Null(_usage.LastUsed(Tool.Claude));
+        Add(Tool.Claude, "cheap", Hour.AddMinutes(-30), 1);
+        Add(Tool.Claude, "cheap", Hour.AddMinutes(12), 1);
+        Add(Tool.Codex, "cheap", Hour.AddHours(2), 1);
+
+        Assert.Equal(Hour.AddMinutes(12), _usage.LastUsed(Tool.Claude));
+    }
+
+    [Fact]
     public void Totals_sum_tokens_and_cost_for_a_tool_inside_the_range()
     {
         Add(Tool.Claude, "cheap", Hour, 100, 10);

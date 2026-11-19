@@ -1,6 +1,8 @@
 using System.IO.Abstractions;
 using System.Text.RegularExpressions;
+using Track.Core.Activity;
 using Track.Core.Ingest;
+using Track.Core.Providers;
 using Track.Core.Usage;
 
 namespace Track.Core.Live;
@@ -30,17 +32,15 @@ public sealed partial class LiveStatusDetector(
     string copilotSessionRoot,
     IProcessList processes,
     UsageAggregator usage,
-    TimeProvider time)
+    TimeProvider time,
+    IOllamaStatusProbe? ollamaProbe = null,
+    Func<bool>? ollamaEnabled = null)
 {
     public static readonly TimeSpan ActiveWindow = TimeSpan.FromMinutes(2);
     public static readonly TimeSpan ActivityLookback = TimeSpan.FromDays(1);
 
-    public static readonly IReadOnlyDictionary<Tool, string[]> ProcessNames = new Dictionary<Tool, string[]>
-    {
-        [Tool.Claude] = ["claude"],
-        [Tool.Codex] = ["codex"],
-        [Tool.Copilot] = ["copilot-runtime", "copilotapp_proxy", "copilot"],
-    };
+    public static readonly IReadOnlyDictionary<Tool, string[]> ProcessNames = ProviderCatalog.All
+        .ToDictionary(provider => provider.Id, provider => provider.ProcessNames.ToArray());
 
     /// <param name="recent">Log files written in the last day (from <see cref="LogScanCache"/>); scanned here when null.</param>
     public IReadOnlyDictionary<Tool, LiveStatus> Detect(IReadOnlyList<LogFile>? recent = null)
@@ -48,18 +48,22 @@ public sealed partial class LiveStatusDetector(
         var now = time.GetUtcNow();
         recent = (recent ?? scanner.Scan(now - ActivityLookback)).Where(f => f.LastWriteUtc >= now - ActivityLookback).ToList();
         var openCopilot = OpenCopilotSessions();
+        var ollamaStatus = ollamaProbe is not null && (ollamaEnabled?.Invoke() ?? false)
+            ? ollamaProbe.Probe()
+            : null;
 
         return Enum.GetValues<Tool>().ToDictionary(tool => tool, tool =>
         {
             var files = recent.Where(f => f.Tool == tool).ToList();
             var active = files.Where(f => now - f.LastWriteUtc <= ActiveWindow).Select(f => f.SessionId).Distinct().Count();
+            var useOllamaProbe = tool == Tool.Ollama && ollamaStatus is not null;
             return new LiveStatus(
                 tool,
                 Working: active > 0,
                 ActiveSessions: active,
                 OpenSessions: tool == Tool.Copilot ? openCopilot : 0,
-                ProcessRunning: processes.AnyRunning(ProcessNames[tool]),
-                LastModel: usage.LatestModel(tool),
+                ProcessRunning: useOllamaProbe ? ollamaStatus!.Running : processes.AnyRunning(ProcessNames[tool]),
+                LastModel: useOllamaProbe ? ollamaStatus!.Model : usage.LatestModel(tool),
                 LastActivityUtc: files.Count > 0 ? files.Max(f => f.LastWriteUtc) : null);
         });
     }
@@ -73,7 +77,13 @@ public sealed partial class LiveStatusDetector(
         live.ToDictionary(p => p.Key, p =>
         {
             var mine = working.Where(a => a.Tool == p.Key).ToList();
-            return p.Value with { Working = mine.Count > 0, ActiveSessions = mine.Count, SubAgents = mine.Sum(a => a.Subs.Count(s => s.Running)) };
+            var detailed = ActivityParsers.HasDetailedActivity(p.Key);
+            return p.Value with
+            {
+                Working = mine.Count > 0 || (!detailed && p.Value.Working),
+                ActiveSessions = detailed ? mine.Count : Math.Max(mine.Count, p.Value.ActiveSessions),
+                SubAgents = mine.Sum(a => a.Subs.Count(s => s.Running)),
+            };
         });
 
     /// <summary>Copilot sessions with an <c>inuse.&lt;pid&gt;.hold</c> file whose process is alive.</summary>

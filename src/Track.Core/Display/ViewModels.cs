@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using Track.Core.Ingest;
 using Track.Core.Live;
+using Track.Core.Providers;
 using Track.Core.Settings;
 using Track.Core.Usage;
 
@@ -64,7 +65,7 @@ public sealed record ModelBreakdownViewModel(Tool Tool, string ToolName, string 
 /// <summary>Everything the popover shows. Plain .NET: the WPF shell only binds to it.</summary>
 public sealed class PopoverViewModel : ObservableObject
 {
-    private static readonly Tool[] Order = [Tool.Claude, Tool.Codex, Tool.Copilot];
+    private static readonly Tool[] Order = ProviderCatalog.Order.ToArray();
 
     private readonly UsageAggregator _usage;
     private readonly UsagePanelBuilder _panel;
@@ -115,6 +116,11 @@ public sealed class PopoverViewModel : ObservableObject
 
     /// <summary>The tools the usage table lists (the visibility rule); the island's Usage tab lists the same ones.</summary>
     public IReadOnlyList<Tool> ListedTools { get; private set; } = [];
+
+    /// <summary>Visible providers with token usage; status-only providers are excluded from usage tables and charts.</summary>
+    public IReadOnlyList<Tool> ListedUsageTools { get; private set; } = [];
+
+    public bool CompactRows => ListedTools.Count > 4;
 
     /// <summary>
     /// Whether the popover is on screen. While it is not, the chart and comparison are not worked out (nobody can
@@ -182,7 +188,7 @@ public sealed class PopoverViewModel : ObservableObject
 
     /// <summary>Shown instead of the table when no tool is listed.</summary>
     public string? EmptyText => Rows.Count == 0
-        ? $"No Claude Code, Codex or Copilot usage in the last {_settings.Visibility.RemoveAfterNoUsageDays} days."
+        ? $"No provider usage in the last {_settings.Visibility.RemoveAfterNoUsageDays} days."
         : null;
 
     public string UpdatedText { get => _updatedText; private set => Set(ref _updatedText, value); }
@@ -244,13 +250,22 @@ public sealed class PopoverViewModel : ObservableObject
 
     private void Rebuild()
     {
-        Visibility = Order.ToDictionary(t => t, t => ToolVisibilityPolicy.Decide(t, IsWorking(t), _usage, _periods, _settings.Visibility));
+        Visibility = Order.ToDictionary(t => t, t => ProviderVisibilityPolicy.Decide(
+            t,
+            _settings.Providers.ModeFor(t),
+            IsRunning(t),
+            _usage,
+            _periods,
+            _settings.Visibility));
         var listed = Order.Where(t => Visibility[t].InPopover).ToList();
         ListedTools = listed;
+        var usageTools = listed.Where(tool => ProviderCatalog.Get(tool).Capabilities.HasTokens).ToList();
+        ListedUsageTools = usageTools;
+        Raise(nameof(CompactRows));
 
         // Rebuilt on every refresh (5 s live, 30 s usage), so the periods follow the clock: shortly after
         // midnight Today is the new day, and a drilled-down bar that no longer exists is dropped.
-        var panel = _panel.Build(SelectedPeriod, listed, _selectedStartUtc, ChartVisible && IsShown);
+        var panel = _panel.Build(SelectedPeriod, usageTools, _selectedStartUtc, ChartVisible && IsShown);
         _selectedStartUtc = panel.SelectedStartUtc;
         Rows = panel.Rows;
         TotalRow = panel.TotalRow;
@@ -263,7 +278,7 @@ public sealed class PopoverViewModel : ObservableObject
         Tick();
     }
 
-    private bool IsWorking(Tool tool) => _live.TryGetValue(tool, out var s) && s.Working;
+    private bool IsRunning(Tool tool) => _live.TryGetValue(tool, out var status) && ProviderVisibilityPolicy.IsRunning(tool, status);
 
     private void ToggleChart()
     {
@@ -291,6 +306,14 @@ public sealed class PopoverViewModel : ObservableObject
         if (!_live.TryGetValue(tool, out var s))
         {
             return new LiveRowViewModel(tool, name, logo, false, "idle");
+        }
+
+        if (tool == Tool.Ollama)
+        {
+            var ollamaDetail = s.ProcessRunning
+                ? $"running{(s.LastModel is null ? "" : $" · {s.LastModel}")}"
+                : "idle";
+            return new LiveRowViewModel(tool, name, logo, s.ProcessRunning, ollamaDetail);
         }
 
         var model = s.LastModel is null ? "" : $" · {s.LastModel}";

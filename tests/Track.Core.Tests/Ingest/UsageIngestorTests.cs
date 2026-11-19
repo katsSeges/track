@@ -1,5 +1,6 @@
 using System.IO.Abstractions.TestingHelpers;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Time.Testing;
 using Track.Core.Ingest;
 
@@ -16,6 +17,7 @@ public class UsageIngestorTests
     private readonly MockFileSystem _fs = new();
     private readonly FakeTimeProvider _time = new(Lines.Now);
     private IncrementalLogReader _reader = null!;
+    private DocumentLogReader _documents = null!;
     private UsageIngestor _ingestor = null!;
 
     public UsageIngestorTests()
@@ -28,15 +30,43 @@ public class UsageIngestorTests
     private void Start(bool withSnapshot = true)
     {
         _reader = new IncrementalLogReader(_fs);
+        _documents = new DocumentLogReader(_fs);
         _ingestor = new UsageIngestor(
             new LogScanner(_fs, LogSources.Default(Home)),
             _reader,
             new UsageStore(),
             _time,
-            withSnapshot ? new SnapshotStore(_fs, SnapshotPath) : null);
+            withSnapshot ? new SnapshotStore(_fs, SnapshotPath) : null,
+            _documents);
     }
 
     private long Total() => _ingestor.Store.Buckets.Values.Sum(v => v.Total);
+
+    [Fact]
+    public void Turning_a_provider_off_and_on_again_counts_its_usage_once()
+    {
+        var claudeOn = true;
+        _ingestor = new UsageIngestor(
+            new LogScanner(_fs, LogSources.Default(Home), tool => tool != Tool.Claude || claudeOn),
+            _reader,
+            new UsageStore(),
+            _time,
+            documents: _documents);
+        _fs.AddFile(ClaudeLog, new MockFileData(Lines.Claude("m1") + "\n"));
+        _fs.AddFile(CopilotLog, new MockFileData(Lines.Copilot("e1") + "\n"));
+        _ingestor.Refresh();
+        var before = Total();
+
+        claudeOn = false;
+        _ingestor.Refresh();
+        _fs.File.AppendAllText(ClaudeLog, Lines.Claude("m2", 4) + "\n");
+        claudeOn = true;
+        _ingestor.Refresh();
+
+        // Only the line written while Claude was Off is new; m1 is not read and added a second time.
+        Assert.Equal(before + 4, Total());
+        Assert.Contains(ClaudeLog, _reader.TrackedPaths);
+    }
 
     [Fact]
     public void Refresh_collects_new_usage_from_every_tool_once()
@@ -75,6 +105,18 @@ public class UsageIngestorTests
         _ingestor.Refresh();
 
         Assert.Equal(3, Total());
+        Assert.Single(_ingestor.Store.Sessions);
+    }
+
+    [Fact]
+    public void Session_totals_remain_available_through_the_analytics_window()
+    {
+        _fs.AddFile(ClaudeLog, new MockFileData(Lines.Claude("m1") + "\n"));
+        _ingestor.Refresh();
+
+        _time.Advance(TimeSpan.FromDays(8));
+        _ingestor.Refresh();
+
         Assert.Single(_ingestor.Store.Sessions);
     }
 
@@ -201,6 +243,59 @@ public class UsageIngestorTests
     }
 
     [Fact]
+    public void Rewriting_a_document_replaces_its_prior_usage()
+    {
+        const string path = @"C:\home\.gemini\tmp\session-a.jsonl";
+        Start();
+        _fs.AddFile(path, new MockFileData(GeminiMessage("m1", 10)));
+
+        Assert.Equal(1, _ingestor.Refresh());
+        Assert.Equal(10, Total());
+
+        _time.Advance(TimeSpan.FromSeconds(1));
+        _fs.File.WriteAllText(path, GeminiMessage("m1", 25));
+
+        Assert.Equal(1, _ingestor.Refresh());
+        Assert.Equal(25, Total());
+    }
+
+    [Fact]
+    public void Restart_after_document_logs_are_deleted_keeps_snapshotted_history()
+    {
+        const string path = @"C:\home\.gemini\tmp\session-a.jsonl";
+        Start();
+        _fs.AddFile(path, new MockFileData(GeminiMessage("m1", 10)));
+        _ingestor.Refresh();
+        _fs.File.Delete(path);
+
+        Start();
+        Assert.Equal(0, _ingestor.Refresh());
+        Assert.True(_ingestor.RestoredFromSnapshot);
+
+        Assert.Equal(10, Total());
+        Assert.Single(_documents.SaveCursors());
+    }
+
+    [Fact]
+    public void Rewriting_away_all_document_usage_persists_the_removed_contribution()
+    {
+        const string path = @"C:\home\.gemini\tmp\session-a.jsonl";
+        Start();
+        _fs.AddFile(path, new MockFileData(GeminiMessage("m1", 10)));
+        _ingestor.Refresh();
+
+        _time.Advance(TimeSpan.FromMinutes(1));
+        _fs.File.WriteAllText(path, """{"type":"user","id":"no-usage"}""");
+        Assert.Equal(0, _ingestor.Refresh());
+        Assert.Equal(0, Total());
+
+        _fs.File.Delete(path);
+        Start();
+        Assert.Equal(0, _ingestor.Refresh());
+        Assert.Equal(0, Total());
+    }
+
+    [Fact]
     public void Saving_on_exit_works_with_a_snapshot_store_and_is_a_no_op_without()
     {
         Assert.False(_ingestor.SaveSnapshot());
@@ -209,4 +304,34 @@ public class UsageIngestorTests
         Assert.True(_ingestor.SaveSnapshot());
         Assert.NotNull(new SnapshotStore(_fs, SnapshotPath).Load());
     }
+
+    [Fact]
+    public void Ingestion_remains_compatible_without_document_readers()
+    {
+        var snapshots = new SnapshotStore(_fs, SnapshotPath);
+        UsageIngestor Create() => new(
+            new LogScanner(_fs, LogSources.Default(Home)),
+            new IncrementalLogReader(_fs),
+            new UsageStore(),
+            _time,
+            snapshots);
+        var ingestor = Create();
+
+        Assert.True(ingestor.SaveSnapshot());
+
+        var restored = Create();
+        Assert.Equal(0, restored.Refresh());
+        Assert.True(restored.RestoredFromSnapshot);
+    }
+
+    private static string GeminiMessage(string id, long input) =>
+        JsonSerializer.Serialize(new
+        {
+            id,
+            type = "gemini",
+            sessionId = "gemini-session",
+            timestamp = "2026-11-18T12:00:00Z",
+            model = "gemini-2.5",
+            tokens = new { input, cached = 0, output = 0 },
+        });
 }

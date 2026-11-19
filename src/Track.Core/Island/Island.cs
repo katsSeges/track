@@ -2,6 +2,7 @@ using Track.Core.Activity;
 using Track.Core.Display;
 using Track.Core.Ingest;
 using Track.Core.Usage;
+using Track.Core.Providers;
 
 namespace Track.Core.Island;
 
@@ -280,6 +281,9 @@ public sealed record IslandSubAgentRow(Tool Tool, string Name, string? Task, str
 /// <summary>A tool line in the opened island's "full" table: today, week and month tokens.</summary>
 public sealed record IslandTableRow(Tool Tool, string Name, string Today, string Week, string Month);
 
+/// <summary>A visible status-only provider in the opened island; it deliberately carries no usage totals.</summary>
+public sealed record IslandProviderStatusRow(Tool Tool, string Name, string Detail, bool Running);
+
 /// <summary>Everything the island window shows. Fields not used by <see cref="State"/> are empty.</summary>
 public sealed record IslandContent(
     IslandState State,
@@ -299,7 +303,8 @@ public sealed record IslandContent(
     IslandTab Tab = IslandTab.Now,
     UsagePanelContent? Usage = null,
     bool NeedsYou = false,
-    int SubAgentDots = 0);
+    int SubAgentDots = 0,
+    IReadOnlyList<IslandProviderStatusRow>? ProviderStatuses = null);
 
 /// <summary>Builds <see cref="IslandContent"/> from the state machine, usage and settings.</summary>
 /// <param name="listed">Tools the usage table lists (the popover's visibility rule), so both show the same rows; all tools when null.</param>
@@ -310,7 +315,8 @@ public sealed class IslandViewModel(
     PeriodCalculator periods,
     TimeProvider time,
     Func<IslandSettings> settings,
-    Func<IReadOnlyList<Tool>>? listed = null)
+    Func<IReadOnlyList<Tool>>? listed = null,
+    Func<IReadOnlyList<LiveRowViewModel>>? liveRows = null)
 {
     public static readonly TimeSpan CycleEvery = TimeSpan.FromSeconds(4);
 
@@ -441,6 +447,10 @@ public sealed class IslandViewModel(
             CanMinimize = working.Count > 0,
             Tab = Tab,
             Usage = UsageTab(),
+            ProviderStatuses = (liveRows?.Invoke() ?? [])
+                .Where(row => !ProviderCatalog.Get(row.Tool).Capabilities.HasTokens)
+                .Select(row => new IslandProviderStatusRow(row.Tool, row.Name, row.Detail, row.Working))
+                .ToList(),
         };
 
         if (s.Expanded == IslandExpanded.Full)
@@ -448,7 +458,7 @@ public sealed class IslandViewModel(
             string Tokens(Tool tool, Period p) => Format.Tokens(usage.Totals(tool, periods.Range(p)).Tokens.Total);
             return opened with
             {
-                Table = Enum.GetValues<Tool>()
+                Table = UsageTools()
                     .Select(t => new IslandTableRow(t, ToolNames.Display(t), Tokens(t, Period.Today), Tokens(t, Period.Week), Tokens(t, Period.Month)))
                     .ToList(),
             };
@@ -468,12 +478,17 @@ public sealed class IslandViewModel(
             return null;
         }
 
-        var tools = listed?.Invoke() ?? Enum.GetValues<Tool>();
+        var tools = UsageTools();
         var content = _panel.Build(Period, tools, _selectedStartUtc, showChart: true);
         _selectedStartUtc = content.SelectedStartUtc;
         _chart = content.Chart;
         return content;
     }
+
+    private IReadOnlyList<Tool> UsageTools() =>
+        (listed?.Invoke() ?? ProviderCatalog.LegacyOrder)
+            .Where(tool => ProviderCatalog.Get(tool).Capabilities.HasTokens)
+            .ToList();
 
     /// <summary>The compact pill shows one dot per running sub-agent, at most this many.</summary>
     public const int MaxDots = 4;

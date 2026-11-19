@@ -146,6 +146,20 @@ public class ActivityParsersTests
         Assert.Throws<ArgumentOutOfRangeException>(() => ActivityParsers.Create((Tool)9, "s"));
     }
 
+    [Theory]
+    [InlineData(Tool.Gemini)]
+    [InlineData(Tool.OpenCode)]
+    [InlineData(Tool.Cline)]
+    [InlineData(Tool.Roo)]
+    [InlineData(Tool.Ollama)]
+    public void Providers_without_activity_schemas_use_noop_parsers(Tool tool)
+    {
+        var parser = ActivityParsers.Create(tool, "s");
+
+        Assert.False(ActivityParsers.HasDetailedActivity(tool));
+        Assert.Empty(parser.Parse("provider log data"));
+    }
+
     [Fact]
     public void Copilot_sub_agent_prompts_are_steps_of_the_main_task_and_ask_user_waits_for_the_answer()
     {

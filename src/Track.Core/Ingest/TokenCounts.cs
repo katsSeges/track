@@ -18,6 +18,14 @@ public readonly record struct TokenCounts(long Input, long CacheWrite, long Cach
         a.Output + b.Output,
         a.Reasoning + b.Reasoning,
         a.Calls + b.Calls);
+
+    public static TokenCounts operator -(TokenCounts a, TokenCounts b) => new(
+        a.Input - b.Input,
+        a.CacheWrite - b.CacheWrite,
+        a.CacheRead - b.CacheRead,
+        a.Output - b.Output,
+        a.Reasoning - b.Reasoning,
+        a.Calls - b.Calls);
 }
 
 /// <summary>Usage of one model in one clock hour (UTC). Hours keep every period exact while staying small.</summary>

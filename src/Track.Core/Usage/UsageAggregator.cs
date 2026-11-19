@@ -61,6 +61,10 @@ public sealed class UsageAggregator(UsageStore store)
             .Select(b => b.Key.Model)
             .FirstOrDefault();
 
+    /// <summary>When this tool was last used (its latest session activity in the store), or null.</summary>
+    public DateTimeOffset? LastUsed(Tool tool) =>
+        store.Sessions.Where(s => s.Key.Tool == tool).Select(s => (DateTimeOffset?)s.Value.LastUtc).Max();
+
     private IEnumerable<KeyValuePair<UsageBucketKey, TokenCounts>> Select(Tool? tool, TimeRange range) =>
         store.Buckets.Where(b => (tool is null || b.Key.Tool == tool) && range.Contains(b.Key.HourUtc));
 

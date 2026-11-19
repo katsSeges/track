@@ -8,6 +8,11 @@ public class ToolNamesTests
     [InlineData(Tool.Claude, "Claude Code")]
     [InlineData(Tool.Codex, "Codex")]
     [InlineData(Tool.Copilot, "Copilot")]
+    [InlineData(Tool.Gemini, "Gemini CLI")]
+    [InlineData(Tool.OpenCode, "OpenCode")]
+    [InlineData(Tool.Cline, "Cline")]
+    [InlineData(Tool.Roo, "Roo Code")]
+    [InlineData(Tool.Ollama, "Ollama")]
     public void Display_returns_the_name_shown_in_the_ui(Tool tool, string expected)
     {
         Assert.Equal(expected, ToolNames.Display(tool));

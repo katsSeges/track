@@ -29,6 +29,202 @@ public enum NothingRunningLook
     TrackMark,
 }
 
+public enum ProviderMode
+{
+    Auto,
+    On,
+    Off,
+}
+
+public enum ThemeMode
+{
+    System,
+    Light,
+    Dark,
+}
+
+public sealed record ProviderColorOverride(string Light, string Dark);
+
+/// <summary>
+/// Theme and provider colors. The accent and the window material follow the tray and island (system blue, acrylic):
+/// they are not settings (user, 2026-11-19). Older files that still have them load fine; the fields are ignored.
+/// </summary>
+public sealed record AppearanceSettings
+{
+    public ThemeMode Theme { get; set; } = ThemeMode.System;
+
+    public Dictionary<Tool, ProviderColorOverride> ProviderColors { get; set; } = [];
+
+    public bool Equals(AppearanceSettings? other) =>
+        other is not null
+        && Theme == other.Theme
+        && ProviderColors.Count == other.ProviderColors.Count
+        && ProviderColors.All(pair => other.ProviderColors.TryGetValue(pair.Key, out var value) && pair.Value == value);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Theme);
+        foreach (var pair in ProviderColors.OrderBy(pair => pair.Key))
+        {
+            hash.Add(pair.Key);
+            hash.Add(pair.Value);
+        }
+
+        return hash.ToHashCode();
+    }
+}
+
+public sealed record BehaviorSettings
+{
+    public bool NotificationsEnabled { get; set; }
+
+    /// <summary>Off until the user turns it on: a global shortcut takes those keys from every other app.</summary>
+    public bool HotkeyEnabled { get; set; }
+
+    public string HotkeyGesture { get; set; } = "Ctrl+Alt+Shift+T";
+
+    public BudgetSettings Budget { get; set; } = new();
+}
+
+public enum BudgetPeriod
+{
+    Day,
+    Month,
+}
+
+public sealed record BudgetThreshold(decimal? Spend, long? Tokens)
+{
+    public static readonly BudgetThreshold Empty = new(null, null);
+}
+
+public sealed record BudgetSettings
+{
+    public bool Enabled { get; set; }
+
+    public BudgetPeriod Period { get; set; } = BudgetPeriod.Day;
+
+    public BudgetThreshold Total { get; set; } = BudgetThreshold.Empty;
+
+    public Dictionary<Tool, BudgetThreshold> Providers { get; set; } = [];
+
+    public BudgetThreshold For(Tool? tool) => tool is { } provider && Providers.TryGetValue(provider, out var threshold)
+        ? threshold
+        : tool is null ? Total : BudgetThreshold.Empty;
+
+    public BudgetSettings WithThreshold(Tool? tool, BudgetThreshold threshold) => tool is null
+        ? this with { Total = threshold }
+        : this with { Providers = new Dictionary<Tool, BudgetThreshold>(Providers) { [tool.Value] = threshold } };
+
+    public bool Equals(BudgetSettings? other) =>
+        other is not null
+        && Enabled == other.Enabled
+        && Period == other.Period
+        && Total == other.Total
+        && Providers.Count == other.Providers.Count
+        && Providers.All(pair => other.Providers.TryGetValue(pair.Key, out var value) && pair.Value == value);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Enabled);
+        hash.Add(Period);
+        hash.Add(Total);
+        foreach (var pair in Providers.OrderBy(pair => pair.Key))
+        {
+            hash.Add(pair.Key);
+            hash.Add(pair.Value);
+        }
+
+        return hash.ToHashCode();
+    }
+}
+
+public sealed record ProviderSettings
+{
+    public ProviderMode Claude { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Codex { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Copilot { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Gemini { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode OpenCode { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Cline { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Roo { get; set; } = ProviderMode.Auto;
+
+    public ProviderMode Ollama { get; set; } = ProviderMode.Off;
+
+    public Dictionary<Tool, string> ChatTargets { get; set; } = [];
+
+    public ProviderMode ModeFor(Tool tool) => tool switch
+    {
+        Tool.Claude => Claude,
+        Tool.Codex => Codex,
+        Tool.Copilot => Copilot,
+        Tool.Gemini => Gemini,
+        Tool.OpenCode => OpenCode,
+        Tool.Cline => Cline,
+        Tool.Roo => Roo,
+        Tool.Ollama => Ollama,
+        _ => throw new ArgumentOutOfRangeException(nameof(tool), tool, "Unknown tool."),
+    };
+
+    public string? ChatTargetFor(Tool tool) => ChatTargets.TryGetValue(tool, out var target) ? target : null;
+
+    public ProviderSettings WithChatTarget(Tool tool, string target) =>
+        this with { ChatTargets = new Dictionary<Tool, string>(ChatTargets) { [tool] = target } };
+
+    public bool Equals(ProviderSettings? other) =>
+        other is not null
+        && Claude == other.Claude
+        && Codex == other.Codex
+        && Copilot == other.Copilot
+        && Gemini == other.Gemini
+        && OpenCode == other.OpenCode
+        && Cline == other.Cline
+        && Roo == other.Roo
+        && Ollama == other.Ollama
+        && ChatTargets.Count == other.ChatTargets.Count
+        && ChatTargets.All(pair => other.ChatTargets.TryGetValue(pair.Key, out var value) && pair.Value == value);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Claude);
+        hash.Add(Codex);
+        hash.Add(Copilot);
+        hash.Add(Gemini);
+        hash.Add(OpenCode);
+        hash.Add(Cline);
+        hash.Add(Roo);
+        hash.Add(Ollama);
+        foreach (var pair in ChatTargets.OrderBy(pair => pair.Key))
+        {
+            hash.Add(pair.Key);
+            hash.Add(pair.Value);
+        }
+
+        return hash.ToHashCode();
+    }
+
+    public ProviderSettings WithMode(Tool tool, ProviderMode mode) => tool switch
+    {
+        Tool.Claude => this with { Claude = mode },
+        Tool.Codex => this with { Codex = mode },
+        Tool.Copilot => this with { Copilot = mode },
+        Tool.Gemini => this with { Gemini = mode },
+        Tool.OpenCode => this with { OpenCode = mode },
+        Tool.Cline => this with { Cline = mode },
+        Tool.Roo => this with { Roo = mode },
+        Tool.Ollama => this with { Ollama = mode },
+        _ => throw new ArgumentOutOfRangeException(nameof(tool), tool, "Unknown tool."),
+    };
+}
+
 /// <summary>Everything the user can change. Defaults are the choices from mockup rounds 1–4.</summary>
 public sealed record TrackSettings
 {
@@ -48,7 +244,13 @@ public sealed record TrackSettings
 
     public VisibilitySettings Visibility { get; set; } = new();
 
+    public ProviderSettings Providers { get; set; } = new();
+
     public IslandSettings Island { get; set; } = new();
+
+    public AppearanceSettings Appearance { get; set; } = new();
+
+    public BehaviorSettings Behavior { get; set; } = new();
 
     /// <summary>The tray popover's Hide / Show chart toggle (user request 2026-11-18). False = chart shown.</summary>
     public bool PopoverChartHidden { get; set; }

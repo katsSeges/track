@@ -30,8 +30,10 @@ public class IslandUsageTests
         ]);
     }
 
-    private IslandViewModel Vm(Func<IReadOnlyList<Tool>>? listed = null) =>
-        new(_machine, _store, new UsageAggregator(_store), new PeriodCalculator(_time, Copenhagen), _time, () => _settings, listed);
+    private IslandViewModel Vm(
+        Func<IReadOnlyList<Tool>>? listed = null,
+        Func<IReadOnlyList<LiveRowViewModel>>? liveRows = null) =>
+        new(_machine, _store, new UsageAggregator(_store), new PeriodCalculator(_time, Copenhagen), _time, () => _settings, listed, liveRows);
 
     private void Open()
     {
@@ -149,6 +151,34 @@ public class IslandUsageTests
 
         Assert.Equal(["Claude Code"], usage.Rows.Select(r => r.Name));
         Assert.Null(usage.TotalRow);
+    }
+
+    [Fact]
+    public void Status_only_providers_do_not_create_token_rows_on_the_island()
+    {
+        Open();
+        var island = Vm(() => [Tool.Claude, Tool.Ollama]);
+        island.SelectTab(IslandTab.Usage);
+
+        var usage = island.Build().Usage!;
+
+        Assert.Equal(["Claude Code"], usage.Rows.Select(row => row.Name));
+        Assert.DoesNotContain(usage.Chart!.Bars.SelectMany(bar => bar.Segments), segment => segment.Tool == Tool.Ollama);
+    }
+
+    [Fact]
+    public void Visible_status_only_providers_are_shown_without_token_totals()
+    {
+        Open();
+        var status = new LiveRowViewModel(Tool.Ollama, "Ollama", "ollama", true, "running · llama3.2:latest");
+        var island = Vm(() => [Tool.Ollama], () => [status]);
+        island.SelectTab(IslandTab.Usage);
+
+        var content = island.Build();
+
+        Assert.Equal(new IslandProviderStatusRow(Tool.Ollama, "Ollama", "running · llama3.2:latest", true), Assert.Single(content.ProviderStatuses!));
+        Assert.Empty(content.Usage!.Rows);
+        Assert.DoesNotContain(content.Usage.Chart!.Bars.SelectMany(bar => bar.Segments), segment => segment.Tool == Tool.Ollama);
     }
 
     [Fact]

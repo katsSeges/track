@@ -8,12 +8,27 @@
     <SolidColorBrush x:Key="Accent" Color="#0A66D8" />
     <SolidColorBrush x:Key="Ok" Color="#28A745" />
     <SolidColorBrush x:Key="OkSoft" Color="#2E28A745" />
+    <SolidColorBrush x:Key="WarnSoft" Color="#1AD98A00" />
     <SolidColorBrush x:Key="Warn" Color="#D98A00" />
     <!-- Laid over the acrylic backdrop; solid enough to read, thin enough to keep the blur. -->
     <SolidColorBrush x:Key="PopBg" Color="#B8F6F6F8" />
     <SolidColorBrush x:Key="PopSolid" Color="#F6F6F8" />
+    <!-- Controls: text fields, the segmented-control track and pop-up lists (combo, calendar). -->
+    <SolidColorBrush x:Key="Field" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="FieldBorder" Color="#1F000000" />
+    <SolidColorBrush x:Key="SegTrack" Color="#0F000000" />
+    <SolidColorBrush x:Key="SwitchOff" Color="#29000000" />
+    <SolidColorBrush x:Key="PopupBg" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="AccentOn" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="ErrorText" Color="#A82A23" />
+    <SolidColorBrush x:Key="WarningText" Color="#7A3F00" />
     <SolidColorBrush x:Key="SegSelected" Color="#FFFFFF" />
     <SolidColorBrush x:Key="Claude" Color="#D97757" />
     <SolidColorBrush x:Key="Codex" Color="#2B2B2E" />
     <SolidColorBrush x:Key="Copilot" Color="#7A4FD6" />
+    <SolidColorBrush x:Key="Gemini" Color="#4285F4" />
+    <SolidColorBrush x:Key="OpenCode" Color="#2D6A4F" />
+    <SolidColorBrush x:Key="Cline" Color="#0B8F87" />
+    <SolidColorBrush x:Key="Roo" Color="#A74BC8" />
+    <SolidColorBrush x:Key="Ollama" Color="#454545" />
 </ResourceDictionary>

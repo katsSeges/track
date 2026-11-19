@@ -1,13 +1,17 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.IO.Abstractions;
 using System.Net.Http;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using H.NotifyIcon;
+using H.NotifyIcon.Core;
 using Microsoft.Win32;
+using Track.App.Live;
 using Track.Core;
 using Track.Core.Activity;
 using Track.Core.Island;
@@ -15,10 +19,12 @@ using Track.Core.Display;
 using Track.Core.Ingest;
 using Track.Core.Live;
 using Track.Core.Pricing;
+using Track.Core.Providers;
 using Track.Core.Settings;
 using Track.Core.Tray;
 using Track.Core.Time;
 using Track.Core.Usage;
+using ThemeMode = Track.Core.Settings.ThemeMode;
 
 namespace Track.App.Shell;
 
@@ -34,12 +40,15 @@ public sealed record AppOptions(
     bool Diagnostics,
     string? RenderPopoverTo = null,
     string? RenderIslandTo = null,
-    string? PointerFile = null)
+    string? PointerFile = null,
+    string? RenderAnalyticsTo = null,
+    string? RenderSettingsTo = null)
 {
     /// <summary>
     /// Reads <c>TRACK_HOME</c> / <c>TRACK_DATA</c> / <c>TRACK_DIAG</c> / <c>TRACK_POINTER_FILE</c> and the flags <c>--open</c>,
     /// <c>--card claude|codex|copilot</c>, <c>--theme light|dark</c>, <c>--render-icons &lt;dir&gt;</c>,
-    /// <c>--render-popover &lt;dir&gt;</c>, <c>--render-island &lt;dir&gt;</c>, <c>--no-startup</c>.
+    /// <c>--render-popover &lt;dir&gt;</c>, <c>--render-island &lt;dir&gt;</c>, <c>--render-analytics &lt;dir&gt;</c>,
+    /// <c>--render-settings &lt;dir&gt;</c>, <c>--no-startup</c>.
     /// </summary>
     [ExcludeFromCodeCoverage(Justification = "Startup plumbing.")]
     public static AppOptions From(string[] args)
@@ -55,11 +64,13 @@ public sealed record AppOptions(
             Logos.FromKey(Value("--card")),
             Value("--theme") switch { "dark" => true, "light" => false, _ => null },
             Value("--render-icons"),
-            !args.Contains("--no-startup") && Value("--render-popover") is null && Value("--render-island") is null,
+            !args.Contains("--no-startup") && Value("--render-popover") is null && Value("--render-island") is null && Value("--render-analytics") is null && Value("--render-settings") is null,
             Environment.GetEnvironmentVariable("TRACK_DIAG") == "1",
             Value("--render-popover"),
             Value("--render-island"),
-            Environment.GetEnvironmentVariable("TRACK_POINTER_FILE"));
+            Environment.GetEnvironmentVariable("TRACK_POINTER_FILE"),
+            Value("--render-analytics"),
+            Value("--render-settings"));
     }
 }
 
@@ -75,9 +86,17 @@ public sealed class TrayController : IDisposable
     private readonly Dispatcher _ui;
     private readonly IFileSystem _fs = new FileSystem();
     private readonly SettingsStore _settingsStore;
+    private readonly AlertStateStore _alertStateStore;
     private readonly UsageIngestor _ingestor;
     private readonly UsageAggregator _usage;
     private readonly PeriodCalculator _periods;
+    private readonly AnalyticsBuilder _analyticsBuilder;
+    private readonly AlertEvaluator _alertEvaluator = new();
+    private readonly NotificationPolicy _notificationPolicy = new();
+    private MenuItem? _startupMenuItem;
+    private IReadOnlySet<string> _firedBudgetAlerts = new HashSet<string>(StringComparer.Ordinal);
+    private bool _alertStateAvailable;
+    private string? _alertStateError;
     private readonly LiveStatusDetector _liveDetector;
     private readonly PriceLoader _prices;
     private readonly PopoverViewModel _vm;
@@ -107,6 +126,9 @@ public sealed class TrayController : IDisposable
     private TaskbarIcon? _tray;
     private PopoverWindow? _popover;
     private ModelCardWindow? _card;
+    private SettingsWindow? _settingsWindow;
+    private AnalyticsWindow? _analyticsWindow;
+    private HotkeyHost? _hotkeyHost;
     private IReadOnlyDictionary<Tool, LiveStatus> _live = new Dictionary<Tool, LiveStatus>();
     private string? _iconKey;
     private string _priceNote = "bundled prices";
@@ -118,21 +140,49 @@ public sealed class TrayController : IDisposable
         _fs.Directory.CreateDirectory(options.DataDirectory);
         _settingsStore = new SettingsStore(_fs, Path.Combine(options.DataDirectory, "settings.json"));
         _settings = _settingsStore.Load();
+        _alertStateStore = new AlertStateStore(_fs, Path.Combine(options.DataDirectory, "alerts.json"));
+        var alertState = _alertStateStore.Load();
+        _firedBudgetAlerts = alertState.FiredKeys.ToHashSet(StringComparer.Ordinal);
+        _alertStateAvailable = alertState.Success;
+        _alertStateError = alertState.Error;
 
         // TRACK_CLOCK_OFFSET (seconds, only with TRACK_DIAG=1) shifts the app's clock for rollover checks.
         var time = _time = ShiftedTimeProvider.For(TimeProvider.System, Environment.GetEnvironmentVariable("TRACK_CLOCK_OFFSET"), options.Diagnostics);
-        var scanner = new LogScanner(_fs, LogSources.Default(options.Home));
+        var scanner = new LogScanner(
+            _fs,
+            LogSources.Default(options.Home),
+            tool => _settings.Providers.ModeFor(tool) != ProviderMode.Off);
         var store = _store = new UsageStore();
-        _ingestor = new UsageIngestor(scanner, new IncrementalLogReader(_fs), store, time, new SnapshotStore(_fs, Path.Combine(options.DataDirectory, "snapshot.json")));
+        _ingestor = new UsageIngestor(
+            scanner,
+            new IncrementalLogReader(_fs),
+            store,
+            time,
+            IsRenderOnly ? null : new SnapshotStore(_fs, Path.Combine(options.DataDirectory, "snapshot.json")),
+            new DocumentLogReader(_fs));
         _usage = new UsageAggregator(store);
         _periods = new PeriodCalculator(time, TimeZoneInfo.Local);
-        _liveDetector = new LiveStatusDetector(_fs, scanner, Path.Combine(options.Home, ".copilot", "session-state"), new SystemProcessList(), _usage, time);
+        _analyticsBuilder = new AnalyticsBuilder(store, _usage, _periods, time);
+        _liveDetector = new LiveStatusDetector(
+            _fs,
+            scanner,
+            Path.Combine(options.Home, ".copilot", "session-state"),
+            new SystemProcessList(),
+            _usage,
+            time,
+            new HttpOllamaStatusProbe(),
+            () => _settings.Providers.ModeFor(Tool.Ollama) != ProviderMode.Off);
         _prices = new PriceLoader(_fs, Path.Combine(options.DataDirectory, "prices.json"), new LiteLlmPriceDownloader(new HttpClient { Timeout = TimeSpan.FromSeconds(20) }), time);
         _vm = new PopoverViewModel(store, _usage, _periods, time, _settings);
+        if (!_alertStateAvailable)
+        {
+            _vm.StatusText = $"Budget alerts are paused because their state could not be read: {_alertStateError}";
+        }
         _vm.SettingsChanged += (_, changed) =>
         {
             _settings = changed;
-            if (_options.RenderPopoverTo is null && _options.RenderIslandTo is null)
+            _scanCache?.MarkDirty();
+            if (!IsRenderOnly)
             {
                 _settingsStore.Save(changed); // render-only runs never touch the user's settings
             }
@@ -144,7 +194,11 @@ public sealed class TrayController : IDisposable
         _activity = new ActivityReader(_fs, scanner, new AgentActivityTracker());
         _scanCache = new LogScanCache(_fs, scanner, time);
         _trim = new DispatcherTimer(TimeSpan.FromMinutes(30), DispatcherPriority.Background, (_, _) => TrimMemory(), ui);
-        foreach (var root in LogSources.Default(options.Home).Select(s => s.Root).Where(Directory.Exists))
+        foreach (var root in LogSources.Default(options.Home)
+                     .Where(source => _settings.Providers.ModeFor(source.Tool) != ProviderMode.Off)
+                     .Select(s => s.Root)
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .Where(Directory.Exists))
         {
             // A new log file (new session) triggers a full scan at the next live check instead of within a minute.
             var watcher = new FileSystemWatcher(root) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName };
@@ -155,18 +209,43 @@ public sealed class TrayController : IDisposable
         }
         _island = new IslandStateMachine(time, () => _settings.Island);
         // The Usage tab lists the same tools as the popover (the visibility rule), so both show the same numbers.
-        _islandVm = new IslandViewModel(_island, store, _usage, _periods, time, () => _settings.Island, () => _vm.ListedTools);
-        _islandVm.TabChanged += (_, tab) => _settingsStore.Save(_settings = _settings with { Island = _settings.Island with { OpenTab = tab } });
+        _islandVm = new IslandViewModel(_island, store, _usage, _periods, time, () => _settings.Island, () => _vm.ListedTools, () => _vm.LiveRows);
+        _islandVm.TabChanged += (_, tab) =>
+        {
+            _settings = _settings with { Island = _settings.Island with { OpenTab = tab } };
+            if (!IsRenderOnly)
+            {
+                _settingsStore.Save(_settings);
+            }
+        };
         _pointer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background, (_, _) => OnPointerTick(), ui) { IsEnabled = false };
 
         _tick = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => _vm.Tick(), ui) { IsEnabled = false };
         _priceTimer = new DispatcherTimer(TimeSpan.FromHours(6), DispatcherPriority.Background, (_, _) => LoadPrices(), ui);
     }
 
-    private static bool AppDark(AppOptions o) => o.DarkOverride ?? Native.ReadTheme(taskbar: false) == TaskbarTheme.Dark;
+    private bool AppDark(AppOptions o) => o.DarkOverride ?? (_settings.Appearance.Theme switch
+    {
+        ThemeMode.Light => false,
+        ThemeMode.Dark => true,
+        _ => Native.ReadTheme(taskbar: false) == TaskbarTheme.Dark,
+    });
 
-    private static TaskbarTheme TaskbarThemeFor(AppOptions o) =>
-        o.DarkOverride is { } dark ? (dark ? TaskbarTheme.Dark : TaskbarTheme.Light) : Native.ReadTheme(taskbar: true);
+    private bool IsRenderOnly =>
+        _options.RenderIconsTo is not null
+        || _options.RenderPopoverTo is not null
+        || _options.RenderIslandTo is not null
+        || _options.RenderAnalyticsTo is not null
+        || _options.RenderSettingsTo is not null;
+
+    private TaskbarTheme TaskbarThemeFor(AppOptions o) => o.DarkOverride is { } dark
+        ? (dark ? TaskbarTheme.Dark : TaskbarTheme.Light)
+        : _settings.Appearance.Theme switch
+        {
+            ThemeMode.Light => TaskbarTheme.Light,
+            ThemeMode.Dark => TaskbarTheme.Dark,
+            _ => Native.ReadTheme(taskbar: true),
+        };
 
     public void Start()
     {
@@ -182,6 +261,11 @@ public sealed class TrayController : IDisposable
         _tray.Icon = _renderer.Icon(TrayIconModel.Build(new HashSet<Tool>(), new HashSet<Tool>(), _settings.IconLayout, _settings.IdleLook, _settings.NothingRunningLook, TaskbarThemeFor(_options)), TrayIconRenderer.PixelSize());
         _tray.TrayLeftMouseUp += (_, _) => TogglePopover();
         _tray.ForceCreate(enablesEfficiencyMode: false);
+        if (!IsRenderOnly)
+        {
+            _hotkeyHost = new HotkeyHost(TogglePopover);
+            ApplyHotkeySettings();
+        }
 
         _pointer.Start();
 
@@ -214,6 +298,28 @@ public sealed class TrayController : IDisposable
             return;
         }
 
+        if (_options.RenderAnalyticsTo is { } analyticsTo)
+        {
+            Task.Run(async () =>
+            {
+                _coordinator.Start();
+                var loaded = await _prices.LoadAsync();
+                _ = _ui.BeginInvoke(DispatcherPriority.ApplicationIdle, () => RenderAnalyticsAndExit(analyticsTo, loaded.Table));
+            });
+            return;
+        }
+
+        if (_options.RenderSettingsTo is { } settingsTo)
+        {
+            Task.Run(async () =>
+            {
+                _coordinator.Start();
+                _ = await _prices.LoadAsync();
+                _ = _ui.BeginInvoke(DispatcherPriority.ApplicationIdle, () => RenderSettingsAndExit(settingsTo));
+            });
+            return;
+        }
+
         Task.Run(() =>
         {
             _coordinator.Start();
@@ -237,20 +343,25 @@ public sealed class TrayController : IDisposable
     {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _coordinator?.Dispose();
+        _hotkeyHost?.Dispose();
         _tick.Stop();
         _priceTimer.Stop();
         _pointer.Stop();
         _trim.Stop();
         _watchers.ForEach(w => w.Dispose());
         _islandWindow?.Close();
-        lock (_gate)
+        _analyticsWindow?.Close();
+        if (!IsRenderOnly)
         {
-            _ingestor.SaveSnapshot();
+            lock (_gate)
+            {
+                _ingestor.SaveSnapshot();
+            }
         }
 
-        // Render-only runs (--render-popover / --render-island) step through tabs to draw them; they must not
+        // Render-only runs step through views to draw them; they must not
         // change the user's settings (a render run once saved "Month" as the last tab, found 2026-11-18).
-        if (_options.RenderPopoverTo is null && _options.RenderIslandTo is null)
+        if (!IsRenderOnly)
         {
             _settingsStore.Save(_settings with { LastPeriod = _vm.SelectedPeriod });
         }
@@ -258,27 +369,119 @@ public sealed class TrayController : IDisposable
         _renderer.Dispose();
     }
 
-    /// <summary>Renders the tray icon for six running states, both taskbar themes and three sizes, then returns.</summary>
-    public static void RenderIcons(string directory, TrackSettings settings)
+    /// <summary>Renders provider scenarios through the same visibility and native drawing path used by the tray.</summary>
+    public void RenderIcons(string directory)
     {
         Directory.CreateDirectory(directory);
-        var all = new HashSet<Tool> { Tool.Claude, Tool.Codex, Tool.Copilot };
-        var states = new (string Name, Tool[] Running)[]
+
+        lock (_gate)
         {
-            ("nothing", []), ("claude", [Tool.Claude]), ("codex", [Tool.Codex]), ("copilot", [Tool.Copilot]),
-            ("claude+copilot", [Tool.Claude, Tool.Copilot]), ("all", [Tool.Claude, Tool.Codex, Tool.Copilot]),
-        };
-        foreach (var (name, running) in states)
+            _ingestor.Refresh();
+        }
+
+        _vm.UsageRefreshed();
+        _live = _liveDetector.Detect();
+        _vm.LiveUpdated(_live);
+        SaveIconScenario(directory, "runtime-current");
+
+        var originalSettings = _settings;
+        var off = originalSettings.Providers;
+        foreach (var tool in ProviderCatalog.Order)
         {
-            foreach (var theme in Enum.GetValues<TaskbarTheme>())
+            off = off.WithMode(tool, ProviderMode.Off);
+        }
+
+        var idle = ScenarioLive([], []);
+        foreach (var tool in ProviderCatalog.Order)
+        {
+            _settings = originalSettings with { Providers = off.WithMode(tool, ProviderMode.On) };
+            _vm.ApplySettings(_settings);
+            RefreshRenderUsage();
+            _live = idle;
+            _vm.LiveUpdated(_live);
+            SaveIconScenario(directory, $"solo-{tool.ToString().ToLowerInvariant()}-idle");
+
+            _live = ScenarioLive([tool], [tool]);
+            _vm.LiveUpdated(_live);
+            SaveIconScenario(directory, $"solo-{tool.ToString().ToLowerInvariant()}-running");
+
+            _settings = originalSettings with { Providers = off.WithMode(tool, ProviderMode.Auto) };
+            _vm.ApplySettings(_settings);
+            RefreshRenderUsage();
+            _live = tool == Tool.Ollama ? ScenarioLive([], [tool]) : idle;
+            _vm.LiveUpdated(_live);
+            SaveIconScenario(directory, $"auto-{tool.ToString().ToLowerInvariant()}");
+        }
+
+        var mixedModes = off
+            .WithMode(Tool.Claude, ProviderMode.On)
+            .WithMode(Tool.Copilot, ProviderMode.Auto)
+            .WithMode(Tool.Gemini, ProviderMode.Auto)
+            .WithMode(Tool.OpenCode, ProviderMode.Auto)
+            .WithMode(Tool.Cline, ProviderMode.Auto)
+            .WithMode(Tool.Roo, ProviderMode.Auto)
+            .WithMode(Tool.Ollama, ProviderMode.Auto);
+        _settings = originalSettings with { Providers = mixedModes };
+        _vm.ApplySettings(_settings);
+        RefreshRenderUsage();
+        _live = ScenarioLive([Tool.Cline], [Tool.Ollama]);
+        _vm.LiveUpdated(_live);
+        SaveIconScenario(directory, "mixed-running-idle-visibility");
+
+        _settings = originalSettings;
+        _vm.ApplySettings(_settings);
+        _live = _liveDetector.Detect();
+        _vm.LiveUpdated(_live);
+    }
+
+    private void RefreshRenderUsage()
+    {
+        lock (_gate)
+        {
+            _ingestor.Refresh();
+        }
+
+        _vm.UsageRefreshed();
+    }
+
+    private static IReadOnlyDictionary<Tool, LiveStatus> ScenarioLive(IEnumerable<Tool> working, IEnumerable<Tool> processes)
+    {
+        var active = working.ToHashSet();
+        var running = processes.ToHashSet();
+        return ProviderCatalog.Order.ToDictionary(tool => tool, tool =>
+        {
+            var isWorking = active.Contains(tool);
+            var processRunning = isWorking || running.Contains(tool);
+            return new LiveStatus(
+                tool,
+                isWorking,
+                isWorking ? 1 : 0,
+                0,
+                processRunning,
+                null,
+                processRunning ? DateTimeOffset.UtcNow : null);
+        });
+    }
+
+    private void SaveIconScenario(string directory, string name)
+    {
+        foreach (var theme in Enum.GetValues<TaskbarTheme>())
+        {
+            var spec = CreateTrayIconSpec(theme);
+            foreach (var size in new[] { 16, 24, 32 })
             {
-                var spec = TrayIconModel.Build(all, running.ToHashSet(), settings.IconLayout, settings.IdleLook, settings.NothingRunningLook, theme);
-                foreach (var size in new[] { 16, 24, 32, 96 })
-                {
-                    File.WriteAllBytes(Path.Combine(directory, $"{name}-{theme.ToString().ToLowerInvariant()}-{size}.png"), TrayIconRenderer.Png(spec, size));
-                }
+                File.WriteAllBytes(
+                    Path.Combine(directory, $"{name}-{theme.ToString().ToLowerInvariant()}-{size}.png"),
+                    TrayIconRenderer.Png(spec, size));
             }
         }
+    }
+
+    private TrayIconSpec CreateTrayIconSpec(TaskbarTheme theme)
+    {
+        var inTray = _vm.Visibility.Where(pair => pair.Value.InTray).Select(pair => pair.Key).ToHashSet();
+        var running = TrayIconModel.RunningProviders(_live).ToHashSet();
+        return TrayIconModel.Build(inTray, running, _settings.IconLayout, _settings.IdleLook, _settings.NothingRunningLook, theme);
     }
 
     /// <summary>
@@ -374,6 +577,7 @@ public sealed class TrayController : IDisposable
                 _vm.UsageRefreshed();
             }
 
+            EvaluateBudgetAlerts();
             UpdateTrayIcon();
             _usageReadOnce = true;
             TrimAfterStart();
@@ -401,6 +605,15 @@ public sealed class TrayController : IDisposable
         _ui.BeginInvoke(() =>
         {
             _live = live;
+            var notifications = _notificationPolicy.Update(working, waiting, _settings.Behavior.NotificationsEnabled);
+            if (_settings.Behavior.NotificationsEnabled && !IsRenderOnly)
+            {
+                foreach (var notification in notifications)
+                {
+                    _tray?.ShowNotification(notification.Title, notification.Message, NotificationIcon.Info, sound: false);
+                }
+            }
+
             lock (_gate)
             {
                 _vm.LiveUpdated(live);
@@ -473,6 +686,8 @@ public sealed class TrayController : IDisposable
 
             RenderIsland();
         };
+        window.ChatTooltipRequested = tool => ChatLauncher.TooltipFor(tool, _settings.Providers.ChatTargetFor(tool));
+        window.ChatLaunchRequested = LaunchChat;
         window.MinimizeClicked += () =>
         {
             _island.Minimize();
@@ -490,6 +705,21 @@ public sealed class TrayController : IDisposable
     }
 
     /// <summary>Compacts the managed heap and returns unused pages to Windows.</summary>
+    /// <summary>
+    /// After Settings or Analytics closes: give WPF a moment to let go of the window, then hand the memory back, so
+    /// opening a window once does not keep Track above its idle size (idle gate, plans/track-pr2-style-and-fixes.md).
+    /// </summary>
+    private void TrimSoon()
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Background, _ui) { Interval = TimeSpan.FromSeconds(3) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            TrimMemory();
+        };
+        timer.Start();
+    }
+
     private static void TrimMemory()
     {
         System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
@@ -611,14 +841,35 @@ public sealed class TrayController : IDisposable
             // Only the UI's pointer tick consumes the one-shot lines; the live update's full-screen check just peeks
             // (it used to swallow "click" now and then, found in the Phase 6 run).
             var island = lines.Where(l => l.StartsWith("island:", StringComparison.Ordinal) || l.StartsWith("popover:", StringComparison.Ordinal)).ToList();
+            // "window:settings open", "window:analytics close": open and close the windows for idle-cost runs.
+            var windows = lines.Where(l => l.StartsWith("window:", StringComparison.Ordinal)).ToList();
             if (!consume)
             {
                 return (point, false, lines.Contains("fullscreen"), false);
             }
 
-            if (click || minimize || island.Count > 0)
+            if (click || minimize || island.Count > 0 || windows.Count > 0)
             {
-                File.WriteAllLines(file, lines.Where(l => l is not ("click" or "minimize") && !island.Contains(l)));
+                File.WriteAllLines(file, lines.Where(l => l is not ("click" or "minimize") && !island.Contains(l) && !windows.Contains(l)));
+            }
+
+            foreach (var command in windows)
+            {
+                switch (command)
+                {
+                    case "window:settings open":
+                        OpenSettings(SettingsTab.General);
+                        break;
+                    case "window:settings close":
+                        _settingsWindow?.Close();
+                        break;
+                    case "window:analytics open":
+                        OpenAnalytics();
+                        break;
+                    case "window:analytics close":
+                        _analyticsWindow?.Close();
+                        break;
+                }
             }
 
             // "popover:period month", "popover:bar 23": the popover's tabs and chart, for rollover runs without a mouse.
@@ -672,7 +923,7 @@ public sealed class TrayController : IDisposable
 
         var clock = new ManualClock(DateTimeOffset.UtcNow);
         var machine = new IslandStateMachine(clock, () => _settings.Island);
-        var vm = new IslandViewModel(machine, _store, _usage, _periods, clock, () => _settings.Island, () => _vm.ListedTools);
+        var vm = new IslandViewModel(machine, _store, _usage, _periods, clock, () => _settings.Island, () => _vm.ListedTools, () => _vm.LiveRows);
         var window = new IslandWindow { Left = -4000, Top = 0 };
         var claude = new AgentActivity(Tool.Claude, "demo-claude", clock.Now.AddSeconds(-754), clock.Now.AddMinutes(-60), "claude-opus-5-5");
         // Round 6 demo: sub-agents under Claude Code (one nested, one done) and one under Copilot.
@@ -746,6 +997,113 @@ public sealed class TrayController : IDisposable
         Application.Current.Shutdown();
     }
 
+    private void RenderAnalyticsAndExit(string directory, PriceTable prices)
+    {
+        Directory.CreateDirectory(directory);
+        var dark = AppDark(_options);
+        lock (_gate)
+        {
+            _usage.Prices = prices;
+            _vm.UsageRefreshed();
+            _vm.LiveUpdated(_live = _liveDetector.Detect());
+        }
+
+        var window = new AnalyticsWindow(
+            _analyticsBuilder,
+            (range, providers) =>
+            {
+                lock (_gate)
+                {
+                    return _analyticsBuilder.Build(range, providers);
+                }
+            },
+            () => _vm.ListedUsageTools,
+            dark)
+        {
+            Left = -4000,
+            Top = 0,
+        };
+        window.PrepareForRender();
+        window.Show();
+        window.UpdateLayout();
+        var theme = dark ? "dark" : "light";
+        SaveWindow(window, Path.Combine(directory, $"analytics-{theme}.png"));
+        window.SaveCustomRangeForRender(
+            Path.Combine(directory, $"analytics-{theme}-custom-range.png"),
+            Path.Combine(directory, $"analytics-{theme}-calendar.png"));
+        Application.Current.Shutdown();
+    }
+
+    private void RenderSettingsAndExit(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        var dark = AppDark(_options);
+        var demoBudget = new BudgetSettings
+        {
+            Enabled = true,
+            Period = BudgetPeriod.Month,
+            Total = new BudgetThreshold(75m, 120_000_000),
+            Providers = new Dictionary<Tool, BudgetThreshold>
+            {
+                [Tool.Claude] = new(25m, 40_000_000),
+                [Tool.Codex] = new(30m, null),
+            },
+        };
+        var settings = _settings with
+        {
+            Behavior = _settings.Behavior with
+            {
+                NotificationsEnabled = true,
+                HotkeyEnabled = true,
+                Budget = demoBudget,
+            },
+        };
+        var window = new SettingsWindow(settings, ProviderState)
+        {
+            Dark = dark,
+            Left = -4000,
+            Top = 0,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+        };
+        window.Show();
+        foreach (var tab in Enum.GetValues<SettingsTab>())
+        {
+            window.SelectTab(tab);
+            window.UpdateLayout();
+            SaveWindow(window, Path.Combine(directory, $"settings-{tab.ToString().ToLowerInvariant()}-{(dark ? "dark" : "light")}.png"));
+        }
+
+        window.SelectTab(SettingsTab.Providers);
+        window.ExpandProvider(Tool.Claude);
+        window.UpdateLayout();
+        SaveWindow(window, Path.Combine(directory, $"settings-providers-expanded-{(dark ? "dark" : "light")}.png"));
+        window.SaveColorPopoverForRender(Tool.Claude, Path.Combine(directory, $"settings-color-{(dark ? "dark" : "light")}.png"));
+        window.Close();
+        Application.Current.Shutdown();
+    }
+
+    private static void SaveWindow(Window window, string path)
+    {
+        var content = (FrameworkElement)window.Content;
+        var scale = System.Windows.Media.VisualTreeHelper.GetDpi(window).DpiScaleX;
+        var width = (int)Math.Ceiling(content.ActualWidth * scale);
+        var height = (int)Math.Ceiling(content.ActualHeight * scale);
+        var visual = new System.Windows.Media.DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            var fallback = (System.Windows.Media.Brush)window.FindResource("PopSolid");
+            dc.DrawRoundedRectangle(fallback, null, new Rect(0, 0, content.ActualWidth, content.ActualHeight), 12, 12);
+            dc.DrawRectangle(new System.Windows.Media.VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+        }
+
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96 * scale, 96 * scale, System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using var file = File.Create(path);
+        encoder.Save(file);
+    }
+
     /// <summary>A clock the island renders can move forward.</summary>
     private sealed class ManualClock(DateTimeOffset start) : TimeProvider
     {
@@ -781,8 +1139,8 @@ public sealed class TrayController : IDisposable
         }
 
         var inTray = _vm.Visibility.Where(v => v.Value.InTray).Select(v => v.Key).ToHashSet();
-        var running = _live.Where(l => l.Value.Working).Select(l => l.Key).ToHashSet();
-        var spec = TrayIconModel.Build(inTray, running, _settings.IconLayout, _settings.IdleLook, _settings.NothingRunningLook, TaskbarThemeFor(_options));
+        var running = TrayIconModel.RunningProviders(_live).ToHashSet();
+        var spec = CreateTrayIconSpec(TaskbarThemeFor(_options));
         var size = TrayIconRenderer.PixelSize();
         var key = $"{spec.CacheKey}@{size}";
         if (force || key != _iconKey)
@@ -881,6 +1239,10 @@ public sealed class TrayController : IDisposable
             _popover = new PopoverWindow { DataContext = _vm, Dark = AppDark(_options) };
             _popover.RowHovered += (tool, row) => ShowCard(tool, row);
             _popover.RowLeft += () => _card?.Hide();
+            _popover.SettingsRequested += () => OpenSettings(SettingsTab.General);
+            _popover.AnalyticsRequested += OpenAnalytics;
+            _popover.ChatTooltipRequested = tool => ChatLauncher.TooltipFor(tool, _settings.Providers.ChatTargetFor(tool));
+            _popover.ChatLaunchRequested += tool => LaunchChat(tool);
             _popover.IsVisibleChanged += (_, _) =>
             {
                 _tick.IsEnabled = _popover.IsVisible;
@@ -892,7 +1254,10 @@ public sealed class TrayController : IDisposable
                 if (!_popover.IsVisible)
                 {
                     _card?.Hide();
-                    _settingsStore.Save(_settings = _settings with { LastPeriod = _vm.SelectedPeriod });
+                    if (!IsRenderOnly)
+                    {
+                        _settingsStore.Save(_settings = _settings with { LastPeriod = _vm.SelectedPeriod });
+                    }
                 }
             };
         }
@@ -906,6 +1271,77 @@ public sealed class TrayController : IDisposable
         _vm.Tick();
         // Pinned (--open) opens at the right edge, like a tray popover; a click opens near the pointer.
         _popover.ShowNear(pinned ? new Point(double.MaxValue / 4, 0) : Native.CursorPixels());
+    }
+
+    private string LaunchChat(Tool tool)
+    {
+        var model = _live.TryGetValue(tool, out var status) ? status.LastModel : null;
+        var result = ChatLauncher.Launch(tool, _settings.Providers.ChatTargetFor(tool), model);
+        var message = result.Message ?? $"Opened {result.Target!.Label}.";
+        _vm.StatusText = message;
+        return message;
+    }
+
+    private void EvaluateBudgetAlerts()
+    {
+        if (IsRenderOnly)
+        {
+            return;
+        }
+
+        var behavior = _settings.Behavior;
+        if (!behavior.NotificationsEnabled || !behavior.Budget.Enabled)
+        {
+            return;
+        }
+
+        if (!_alertStateAvailable)
+        {
+            _vm.StatusText = $"Budget alerts are paused because their state could not be read: {_alertStateError}";
+            return;
+        }
+
+        IReadOnlyDictionary<Tool, UsageTotals> providerTotals;
+        UsageTotals total;
+        TimeRange range;
+        lock (_gate)
+        {
+            range = _periods.Range(behavior.Budget.Period == BudgetPeriod.Day ? Period.Today : Period.Month);
+            providerTotals = ProviderCatalog.Order.ToDictionary(tool => tool, tool => _usage.Totals(tool, range));
+            total = _usage.Totals(null, range);
+        }
+
+        var periodStart = DateOnly.FromDateTime(_periods.ToLocal(range.StartUtc));
+        var alerts = _alertEvaluator.Evaluate(behavior.Budget, periodStart, providerTotals, total, _firedBudgetAlerts, behavior.NotificationsEnabled);
+        if (alerts.Count == 0)
+        {
+            return;
+        }
+
+        var updated = AlertEvaluator.Fired(_firedBudgetAlerts, alerts, periodStart);
+        var saved = _alertStateStore.Save(updated);
+        if (!saved.Success)
+        {
+            _alertStateAvailable = false;
+            _alertStateError = saved.Error;
+            _vm.StatusText = $"Budget alerts are paused because their state could not be saved: {saved.Error}";
+            return;
+        }
+
+        _firedBudgetAlerts = updated;
+        foreach (var alert in alerts)
+        {
+            _tray?.ShowNotification("Budget alert", alert.Message, NotificationIcon.Warning, sound: false);
+        }
+    }
+
+    private void ApplyHotkeySettings()
+    {
+        _hotkeyHost?.Configure(_settings.Behavior.HotkeyEnabled, _settings.Behavior.HotkeyGesture);
+        if (_settingsWindow is not null && _hotkeyHost is { } hotkey)
+        {
+            _settingsWindow.SetHotkeyStatus(hotkey.Status);
+        }
     }
 
     private void ShowCard(Tool tool, FrameworkElement? row = null)
@@ -972,14 +1408,8 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(layout);
 
         var startup = new MenuItem { Header = "Start with Windows", IsCheckable = true, IsChecked = _settings.StartWithWindows };
-        startup.Click += (_, _) =>
-        {
-            ChangeSettings(_settings with { StartWithWindows = startup.IsChecked });
-            if (_options.ManageStartup)
-            {
-                new StartupManager(new StartupRegistry(), Environment.ProcessPath!).Apply(startup.IsChecked);
-            }
-        };
+        startup.Click += (_, _) => ChangeSettings(_settings with { StartWithWindows = startup.IsChecked });
+        _startupMenuItem = startup;
         menu.Items.Add(startup);
 
         var island = new MenuItem { Header = "Show top island", IsCheckable = true, IsChecked = _settings.Island.Enabled };
@@ -989,6 +1419,9 @@ public sealed class TrayController : IDisposable
             RenderIsland();
         };
         menu.Items.Add(island);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Settings…", () => OpenSettings(SettingsTab.General)));
+        menu.Items.Add(Item("Analytics…", OpenAnalytics));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Quit", () => Application.Current.Shutdown()));
         return menu;
@@ -1001,16 +1434,98 @@ public sealed class TrayController : IDisposable
         return item;
     }
 
-    private void ChangeSettings(TrackSettings settings)
+    private void ChangeSettings(TrackSettings settings, bool fromSettingsWindow = false)
     {
+        // Start with Windows can be changed in the tray menu and in Settings: both write the Run entry here.
+        var startupChanged = settings.StartWithWindows != _settings.StartWithWindows;
         _settings = settings;
-        _settingsStore.Save(settings);
+        if (startupChanged && _options.ManageStartup && !IsRenderOnly)
+        {
+            new StartupManager(new StartupRegistry(), Environment.ProcessPath!).Apply(settings.StartWithWindows);
+        }
+
+        if (_startupMenuItem is not null)
+        {
+            _startupMenuItem.IsChecked = settings.StartWithWindows;
+        }
+
+        if (!IsRenderOnly)
+        {
+            _settingsStore.Save(settings);
+        }
+        if (!fromSettingsWindow)
+        {
+            _settingsWindow?.ApplySettings(settings);
+        }
+
         lock (_gate)
         {
             _vm.ApplySettings(settings);
         }
 
+        ApplyTheme();
+        ApplyHotkeySettings();
         UpdateTrayIcon(force: true);
+    }
+
+    /// <summary>What Settings shows under a provider's name: its live status and when it was last used.</summary>
+    private (LiveStatus? Live, DateTimeOffset? LastUsed) ProviderState(Tool tool)
+    {
+        lock (_gate)
+        {
+            return (_live?.GetValueOrDefault(tool), _usage.LastUsed(tool));
+        }
+    }
+
+    private void OpenSettings(SettingsTab tab)
+    {
+        if (_settingsWindow is null)
+        {
+            _settingsWindow = new SettingsWindow(_settings, ProviderState)
+            {
+                Dark = AppDark(_options),
+            };
+            _settingsWindow.SettingsChanged += (_, changed) => ChangeSettings(changed, fromSettingsWindow: true);
+            _settingsWindow.Closed += (_, _) =>
+            {
+                _settingsWindow = null;
+                TrimSoon();
+            };
+        }
+
+        _settingsWindow.Dark = AppDark(_options);
+        if (_hotkeyHost is { } hotkey)
+        {
+            _settingsWindow.SetHotkeyStatus(hotkey.Status);
+        }
+
+        _settingsWindow.SelectTab(tab);
+        _settingsWindow.Show();
+        _settingsWindow.Activate();
+    }
+
+    private void OpenAnalytics()
+    {
+        _analyticsWindow ??= new AnalyticsWindow(
+            _analyticsBuilder,
+            (range, providers) =>
+            {
+                lock (_gate)
+                {
+                    return _analyticsBuilder.Build(range, providers);
+                }
+            },
+            () => _vm.ListedUsageTools,
+            AppDark(_options));
+        _analyticsWindow.Closed += (_, _) =>
+        {
+            _analyticsWindow = null;
+            TrimSoon();
+        };
+        _analyticsWindow.ApplyAppearance(AppDark(_options));
+        _analyticsWindow.RefreshData();
+        _analyticsWindow.Show();
+        _analyticsWindow.Activate();
     }
 
     private void OnUserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e) => _ui.BeginInvoke(() =>
@@ -1024,6 +1539,7 @@ public sealed class TrayController : IDisposable
         var dark = AppDark(_options);
         var dictionaries = Application.Current.Resources.MergedDictionaries;
         dictionaries[0] = new ResourceDictionary { Source = new Uri(dark ? "Themes/Dark.xaml" : "Themes/Light.xaml", UriKind.Relative) };
+        ApplyCustomColors(dark);
         if (_popover is not null)
         {
             _popover.Dark = dark;
@@ -1036,6 +1552,55 @@ public sealed class TrayController : IDisposable
         if (_card is not null)
         {
             _card.Dark = dark;
+            if (_card.IsLoaded)
+            {
+                _card.ApplyBackdrop();
+            }
+        }
+
+        if (_settingsWindow is not null)
+        {
+            _settingsWindow.Dark = dark;
+            if (_settingsWindow.IsLoaded)
+            {
+                _settingsWindow.ApplyBackdrop();
+            }
+        }
+
+        _analyticsWindow?.ApplyAppearance(dark);
+    }
+
+    private void ApplyCustomColors(bool dark)
+    {
+        var resources = Application.Current.Resources;
+        foreach (var provider in ProviderCatalog.All)
+        {
+            if (_settings.Appearance.ProviderColors.TryGetValue(provider.Id, out var custom)
+                && TryColor(dark ? custom.Dark : custom.Light, out var color))
+            {
+                resources[provider.Id.ToString()] = new SolidColorBrush(color);
+            }
+            else
+            {
+                resources.Remove(provider.Id.ToString());
+            }
         }
     }
+
+    private static bool TryColor(string? value, out Color color)
+    {
+        if (value is { Length: 7 }
+            && value[0] == '#'
+            && byte.TryParse(value.AsSpan(1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var red)
+            && byte.TryParse(value.AsSpan(3, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var green)
+            && byte.TryParse(value.AsSpan(5, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var blue))
+        {
+            color = Color.FromRgb(red, green, blue);
+            return true;
+        }
+
+        color = default;
+        return false;
+    }
+
 }

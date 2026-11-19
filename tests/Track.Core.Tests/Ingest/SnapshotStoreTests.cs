@@ -72,6 +72,69 @@ public class SnapshotStoreTests
         Assert.Null(new SnapshotStore(new MockFileSystem(), Path).Load());
     }
 
+    [Fact]
+    public void The_v1_1_snapshot_serializer_fixture_loads_and_restores_identical_totals()
+    {
+        var fixture = File.ReadAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "snapshot-v1.1.0.json"));
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(fixture) });
+
+        var loaded = new SnapshotStore(fs, Path).Load()!;
+
+        Assert.Equal(1, loaded.Version);
+        var usage = new UsageStore();
+        usage.Restore(loaded.Buckets, loaded.Sessions);
+        var restored = usage.Save();
+        Assert.Equal(new TokenCounts(10, 2, 3, 4, 1, 1), Assert.Single(restored.Buckets).Tokens);
+        Assert.Equal("session-a", Assert.Single(restored.Sessions).SessionId);
+        Assert.Equal(new TokenCounts(5, 1, 2, 3, 0, 1), restored.Sessions[0].Usage.Tokens);
+        Assert.Empty(loaded.DocumentCursors);
+    }
+
+    [Fact]
+    public void Unknown_snapshot_properties_are_ignored()
+    {
+        const string content = """{"version":1,"savedUtc":"2026-11-18T12:00:00Z","buckets":[],"sessions":[],"cursors":[],"futureProperty":"ignored"}""";
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(content) });
+
+        Assert.NotNull(new SnapshotStore(fs, Path).Load());
+    }
+
+    [Fact]
+    public void Additive_document_cursors_round_trip_without_changing_snapshot_version()
+    {
+        var fs = new MockFileSystem();
+        var store = new SnapshotStore(fs, Path);
+        var usage = new UsageRecord(Tool.Gemini, "session", "gemini-2.5", Lines.Now, 10, 0, 2, 3, 1, "message");
+        var snapshot = Sample() with
+        {
+            DocumentCursors =
+            [
+                new DocumentCursor(@"C:\logs\session.jsonl", Tool.Gemini, "session", "5:123", DocumentContribution.From([usage])),
+            ],
+        };
+
+        Assert.True(store.Save(snapshot));
+        var loaded = store.Load()!;
+
+        Assert.Equal(1, loaded.Version);
+        var cursor = Assert.Single(loaded.DocumentCursors);
+        Assert.Equal((@"C:\logs\session.jsonl", Tool.Gemini, "session", "5:123"),
+            (cursor.Path, cursor.Tool, cursor.SessionId, cursor.Fingerprint));
+        var contribution = cursor.Contribution!;
+        Assert.Equal(1, contribution.Records);
+        Assert.Equal(TokenCounts.From(usage), Assert.Single(contribution.Buckets).Tokens);
+        Assert.Equal(new SessionUsage(TokenCounts.From(usage), Lines.Now, Lines.Now), Assert.Single(contribution.Sessions).Usage);
+    }
+
+    [Fact]
+    public void An_unknown_enum_value_in_a_snapshot_keeps_the_existing_reread_fallback()
+    {
+        const string content = """{"version":1,"savedUtc":"2026-11-18T12:00:00Z","buckets":[{"tool":"FutureTool","model":"m","hourUtc":"2026-11-18T11:00:00Z","tokens":{"input":1,"cacheWrite":0,"cacheRead":0,"output":0,"reasoning":0,"calls":1}}],"sessions":[],"cursors":[]}""";
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(content) });
+
+        Assert.Null(new SnapshotStore(fs, Path).Load());
+    }
+
     [Theory]
     [InlineData(typeof(IOException))]
     [InlineData(typeof(UnauthorizedAccessException))]

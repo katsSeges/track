@@ -12,6 +12,16 @@ public partial class App : Application
     private const string MutexName = @"Local\Track.TrayApp.SingleInstance";
 
     private Mutex? _single;
+
+    /// <summary>
+    /// One Track per user. A test copy (render runs, idle measurements) can set <c>TRACK_INSTANCE</c> to run beside
+    /// the installed Track under its own name; it should also set <c>TRACK_DATA</c> so it never shares data. Without
+    /// it the name is the one Setup checks (<c>AppMutex</c> in scripts/installer/Track.iss).
+    /// </summary>
+    private static string InstanceMutexName() =>
+        Environment.GetEnvironmentVariable("TRACK_INSTANCE") is { Length: > 0 } instance
+            ? MutexName + "." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(instance)))[..16]
+            : MutexName;
     private TrayController? _controller;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -21,12 +31,13 @@ public partial class App : Application
 
         if (options.RenderIconsTo is { } dir)
         {
-            TrayController.RenderIcons(dir, new TrackSettings());
+            _controller = new TrayController(options, Dispatcher);
+            _controller.RenderIcons(dir);
             Shutdown();
             return;
         }
 
-        _single = new Mutex(initiallyOwned: true, MutexName, out var first);
+        _single = new Mutex(initiallyOwned: true, InstanceMutexName(), out var first);
         if (!first)
         {
             // Track is already running for this user.

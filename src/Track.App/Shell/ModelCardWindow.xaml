@@ -5,7 +5,8 @@
         Title="Track models" Width="268" SizeToContent="Height"
         WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True" ShowActivated="False"
         Background="Transparent" FontFamily="{StaticResource Sans}" FontSize="12"
-        Foreground="{DynamicResource Fg}" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+        Foreground="{DynamicResource Fg}" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
+        Typography.NumeralAlignment="Tabular">
     <WindowChrome.WindowChrome>
         <WindowChrome GlassFrameThickness="-1" CaptionHeight="0" ResizeBorderThickness="0" CornerRadius="10" />
     </WindowChrome.WindowChrome>
@@ -35,12 +36,12 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <TextBlock Text="{Binding Model}" FontFamily="{StaticResource Mono}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Model}" FontFamily="{StaticResource Sans}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
-                                    <TextBlock Text="{Binding TokenText}" FontFamily="{StaticResource Mono}" FontSize="11.5" />
-                                    <TextBlock Text="{Binding CostText}" Style="{StaticResource MonoSmall}" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding TokenText}" FontFamily="{StaticResource Sans}" FontSize="11.5" />
+                                    <TextBlock Text="{Binding CostText}" Style="{StaticResource SmallNumbers}" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center" />
                                 </StackPanel>
-                                <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SplitText}" Style="{StaticResource MonoSmall}" Margin="0,2,0,0" />
+                                <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SplitText}" Style="{StaticResource SmallNumbers}" Margin="0,2,0,0" />
                             </Grid>
                         </Border>
                     </DataTemplate>
