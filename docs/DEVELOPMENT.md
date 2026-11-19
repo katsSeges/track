@@ -46,8 +46,36 @@ To release:
 2. Add `docs/release-notes/v<version>.md`.
 3. Push, wait for CI, then push a matching tag: `git tag v1.2.3; git push origin v1.2.3`.
 
-`.github/workflows/release.yml` then builds, tests, runs `scripts\package.ps1` (self-contained win-x64 zip plus
-`.sha256`) and publishes the GitHub release. `scripts\package.ps1` runs the same locally and writes to `artifacts\`.
+`.github/workflows/release.yml` then builds, tests, installs Inno Setup, runs `scripts\package.ps1 -RequireInstaller`,
+runs the installer test and publishes the ZIP, the Setup EXE and a `.sha256` for each. Neither needs .NET installed.
+CI (`ci.yml`) runs the same packaging and installer test on every push and pull request, so a tag never meets them first.
+Both install a pinned Inno Setup with `scripts\installer\Install-InnoSetup.ps1` (SHA-256 and signature checked).
+
+Package locally:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1
+```
+
+This writes `artifacts\Track-<version>-win-x64.zip` and, when [Inno Setup 6](https://jrsoftware.org/isdl.php) is
+installed, `artifacts\Track-<version>-win-x64-setup.exe`, each with a `.sha256`. Without Inno Setup it builds only the
+ZIP and warns; `-RequireInstaller` makes that an error, and `-IsccPath <path>` points at a non-standard `ISCC.exe`.
+
+**The installer** (`scripts\installer\Track.iss`) installs per user in `%LOCALAPPDATA%\Programs\Track` without admin
+rights, with a Start menu shortcut, an optional desktop shortcut, a finish-page launch and an Apps & features entry.
+- **Startup** is on for a new install, like the app's default. On an upgrade the live Run entry decides: Track used
+  before without an entry means the user turned it off. `/TASKS` overrides. Setup writes the same quoted
+  `HKCU\...\Run` value `Track` as the tray toggle and sets only `startWithWindows` in `settings.json` (other fields
+  kept; invalid JSON stops Setup before installing). `TRACK_DATA` is honored.
+- **A running Track** must be closed first (Setup checks the app's single-instance mutex; it never kills it).
+- **Uninstall** keeps settings and usage data and removes only a startup entry pointing at its own install.
+- The Setup EXE is not code-signed yet.
+
+**Installer test:** after packaging, `scripts\test-installer.ps1 -IsccPath '<path-to-ISCC.exe>'` compiles the
+installer with a unique test AppId, temporary install and data folders and its own Start menu group, and never
+enables startup. It checks: invalid settings refused, fresh install, normal launch keeps startup off, a running Track
+blocks Setup, upgrades keep settings (with and without `/TASKS`), shortcut and Apps & features entries, and a clean
+uninstall that keeps data. Run it locally only in a clean Windows account (no running Track, no startup entry).
 
 ## Verification switches
 

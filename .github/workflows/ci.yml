@@ -33,3 +33,41 @@ jobs:
           name: coverage
           path: coverage/coverage.cobertura.xml
           if-no-files-found: ignore
+
+  # Builds the ZIP and the Setup EXE and runs the installer lifecycle test, so a release tag never meets them first.
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Inno Setup (pinned, hash-checked)
+        shell: pwsh
+        run: ./scripts/installer/Install-InnoSetup.ps1
+
+      - name: Package
+        shell: pwsh
+        run: ./scripts/package.ps1 -RequireInstaller
+
+      - name: Verify installer lifecycle (isolated per-user install)
+        shell: pwsh
+        run: ./scripts/test-installer.ps1 -IsccPath "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+
+      - name: Collect installer test logs
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer-logs | Out-Null
+          Get-ChildItem $env:TEMP -Directory -Filter 'TrackInstallerTest-*' | ForEach-Object {
+            Get-ChildItem $_.FullName -Filter *.log | Copy-Item -Destination installer-logs }
+
+      - name: Upload installer test logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-test-logs
+          path: installer-logs
+          if-no-files-found: ignore
