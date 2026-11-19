@@ -54,6 +54,8 @@ public partial class PopoverWindow : Window
 
     public event Action? SettingsRequested;
 
+    public event Action? AnalyticsRequested;
+
     /// <summary>Raised when the pointer or focus leaves a row, or the popover hides.</summary>
     public event Action? RowLeft;
 
@@ -100,6 +102,12 @@ public partial class PopoverWindow : Window
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         SettingsRequested?.Invoke();
+        e.Handled = true;
+    }
+
+    private void Analytics_Click(object sender, RoutedEventArgs e)
+    {
+        AnalyticsRequested?.Invoke();
         e.Handled = true;
     }
 

@@ -83,6 +83,18 @@ public class UsageIngestorTests
     }
 
     [Fact]
+    public void Session_totals_remain_available_through_the_analytics_window()
+    {
+        _fs.AddFile(ClaudeLog, new MockFileData(Lines.Claude("m1") + "\n"));
+        _ingestor.Refresh();
+
+        _time.Advance(TimeSpan.FromDays(8));
+        _ingestor.Refresh();
+
+        Assert.Single(_ingestor.Store.Sessions);
+    }
+
+    [Fact]
     public void Deleted_files_stop_being_tracked_but_their_usage_stays()
     {
         _fs.AddFile(ClaudeLog, new MockFileData(Lines.Claude("m1") + "\n"));

@@ -15,8 +15,8 @@ public sealed class UsageIngestor(
 {
     public static readonly TimeSpan SaveInterval = TimeSpan.FromMinutes(1);
 
-    /// <summary>Sessions last used longer ago than this are dropped from the per-session totals.</summary>
-    public static readonly TimeSpan SessionRetention = TimeSpan.FromDays(7);
+    /// <summary>Retain sessions for the analytics window so range-overlapping totals remain available.</summary>
+    public static readonly TimeSpan SessionRetention = TimeSpan.FromDays(RetentionWindow.Days);
 
     private bool _started;
     private DateTimeOffset _lastSave = DateTimeOffset.MinValue;

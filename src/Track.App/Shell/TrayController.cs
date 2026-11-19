@@ -39,12 +39,13 @@ public sealed record AppOptions(
     bool Diagnostics,
     string? RenderPopoverTo = null,
     string? RenderIslandTo = null,
-    string? PointerFile = null)
+    string? PointerFile = null,
+    string? RenderAnalyticsTo = null)
 {
     /// <summary>
     /// Reads <c>TRACK_HOME</c> / <c>TRACK_DATA</c> / <c>TRACK_DIAG</c> / <c>TRACK_POINTER_FILE</c> and the flags <c>--open</c>,
     /// <c>--card claude|codex|copilot</c>, <c>--theme light|dark</c>, <c>--render-icons &lt;dir&gt;</c>,
-    /// <c>--render-popover &lt;dir&gt;</c>, <c>--render-island &lt;dir&gt;</c>, <c>--no-startup</c>.
+    /// <c>--render-popover &lt;dir&gt;</c>, <c>--render-island &lt;dir&gt;</c>, <c>--render-analytics &lt;dir&gt;</c>, <c>--no-startup</c>.
     /// </summary>
     [ExcludeFromCodeCoverage(Justification = "Startup plumbing.")]
     public static AppOptions From(string[] args)
@@ -60,11 +61,12 @@ public sealed record AppOptions(
             Logos.FromKey(Value("--card")),
             Value("--theme") switch { "dark" => true, "light" => false, _ => null },
             Value("--render-icons"),
-            !args.Contains("--no-startup") && Value("--render-popover") is null && Value("--render-island") is null,
+            !args.Contains("--no-startup") && Value("--render-popover") is null && Value("--render-island") is null && Value("--render-analytics") is null,
             Environment.GetEnvironmentVariable("TRACK_DIAG") == "1",
             Value("--render-popover"),
             Value("--render-island"),
-            Environment.GetEnvironmentVariable("TRACK_POINTER_FILE"));
+            Environment.GetEnvironmentVariable("TRACK_POINTER_FILE"),
+            Value("--render-analytics"));
     }
 }
 
@@ -83,6 +85,7 @@ public sealed class TrayController : IDisposable
     private readonly UsageIngestor _ingestor;
     private readonly UsageAggregator _usage;
     private readonly PeriodCalculator _periods;
+    private readonly AnalyticsBuilder _analyticsBuilder;
     private readonly LiveStatusDetector _liveDetector;
     private readonly PriceLoader _prices;
     private readonly PopoverViewModel _vm;
@@ -113,6 +116,7 @@ public sealed class TrayController : IDisposable
     private PopoverWindow? _popover;
     private ModelCardWindow? _card;
     private SettingsWindow? _settingsWindow;
+    private AnalyticsWindow? _analyticsWindow;
     private IReadOnlyDictionary<Tool, LiveStatus> _live = new Dictionary<Tool, LiveStatus>();
     private string? _iconKey;
     private string _priceNote = "bundled prices";
@@ -141,6 +145,7 @@ public sealed class TrayController : IDisposable
             new DocumentLogReader(_fs));
         _usage = new UsageAggregator(store);
         _periods = new PeriodCalculator(time, TimeZoneInfo.Local);
+        _analyticsBuilder = new AnalyticsBuilder(store, _usage, _periods, time);
         _liveDetector = new LiveStatusDetector(
             _fs,
             scanner,
@@ -156,7 +161,7 @@ public sealed class TrayController : IDisposable
         {
             _settings = changed;
             _scanCache?.MarkDirty();
-            if (_options.RenderPopoverTo is null && _options.RenderIslandTo is null)
+            if (_options.RenderPopoverTo is null && _options.RenderIslandTo is null && _options.RenderAnalyticsTo is null)
             {
                 _settingsStore.Save(changed); // render-only runs never touch the user's settings
             }
@@ -253,6 +258,17 @@ public sealed class TrayController : IDisposable
             return;
         }
 
+        if (_options.RenderAnalyticsTo is { } analyticsTo)
+        {
+            Task.Run(async () =>
+            {
+                _coordinator.Start();
+                var loaded = await _prices.LoadAsync();
+                _ = _ui.BeginInvoke(DispatcherPriority.ApplicationIdle, () => RenderAnalyticsAndExit(analyticsTo, loaded.Table));
+            });
+            return;
+        }
+
         Task.Run(() =>
         {
             _coordinator.Start();
@@ -282,14 +298,15 @@ public sealed class TrayController : IDisposable
         _trim.Stop();
         _watchers.ForEach(w => w.Dispose());
         _islandWindow?.Close();
+        _analyticsWindow?.Close();
         lock (_gate)
         {
             _ingestor.SaveSnapshot();
         }
 
-        // Render-only runs (--render-popover / --render-island) step through tabs to draw them; they must not
+        // Render-only runs step through views to draw them; they must not
         // change the user's settings (a render run once saved "Month" as the last tab, found 2026-11-18).
-        if (_options.RenderPopoverTo is null && _options.RenderIslandTo is null)
+        if (_options.RenderPopoverTo is null && _options.RenderIslandTo is null && _options.RenderAnalyticsTo is null)
         {
             _settingsStore.Save(_settings with { LastPeriod = _vm.SelectedPeriod });
         }
@@ -788,6 +805,61 @@ public sealed class TrayController : IDisposable
         Application.Current.Shutdown();
     }
 
+    private void RenderAnalyticsAndExit(string directory, PriceTable prices)
+    {
+        Directory.CreateDirectory(directory);
+        lock (_gate)
+        {
+            _usage.Prices = prices;
+            _vm.UsageRefreshed();
+            _vm.LiveUpdated(_live = _liveDetector.Detect());
+        }
+
+        var window = new AnalyticsWindow(
+            _analyticsBuilder,
+            (range, providers) =>
+            {
+                lock (_gate)
+                {
+                    return _analyticsBuilder.Build(range, providers);
+                }
+            },
+            () => _vm.ListedUsageTools,
+            AppDark(_options),
+            _settings.Appearance.Material)
+        {
+            Left = -4000,
+            Top = 0,
+        };
+        window.PrepareForRender();
+        window.Show();
+        window.UpdateLayout();
+        SaveWindow(window, Path.Combine(directory, $"analytics-{(AppDark(_options) ? "dark" : "light")}.png"));
+        Application.Current.Shutdown();
+    }
+
+    private static void SaveWindow(Window window, string path)
+    {
+        var content = (FrameworkElement)window.Content;
+        var scale = System.Windows.Media.VisualTreeHelper.GetDpi(window).DpiScaleX;
+        var width = (int)Math.Ceiling(content.ActualWidth * scale);
+        var height = (int)Math.Ceiling(content.ActualHeight * scale);
+        var visual = new System.Windows.Media.DrawingVisual();
+        using (var dc = visual.RenderOpen())
+        {
+            var fallback = (System.Windows.Media.Brush)window.FindResource("PopSolid");
+            dc.DrawRoundedRectangle(fallback, null, new Rect(0, 0, content.ActualWidth, content.ActualHeight), 12, 12);
+            dc.DrawRectangle(new System.Windows.Media.VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+        }
+
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96 * scale, 96 * scale, System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using var file = File.Create(path);
+        encoder.Save(file);
+    }
+
     /// <summary>A clock the island renders can move forward.</summary>
     private sealed class ManualClock(DateTimeOffset start) : TimeProvider
     {
@@ -924,6 +996,7 @@ public sealed class TrayController : IDisposable
             _popover.RowHovered += (tool, row) => ShowCard(tool, row);
             _popover.RowLeft += () => _card?.Hide();
             _popover.SettingsRequested += () => OpenSettings(SettingsTab.Appearance);
+            _popover.AnalyticsRequested += OpenAnalytics;
             _popover.IsVisibleChanged += (_, _) =>
             {
                 _tick.IsEnabled = _popover.IsVisible;
@@ -1034,6 +1107,7 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(island);
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Settings…", () => OpenSettings(SettingsTab.Appearance)));
+        menu.Items.Add(Item("Analytics…", OpenAnalytics));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Quit", () => Application.Current.Shutdown()));
         return menu;
@@ -1082,6 +1156,27 @@ public sealed class TrayController : IDisposable
         _settingsWindow.Activate();
     }
 
+    private void OpenAnalytics()
+    {
+        _analyticsWindow ??= new AnalyticsWindow(
+            _analyticsBuilder,
+            (range, providers) =>
+            {
+                lock (_gate)
+                {
+                    return _analyticsBuilder.Build(range, providers);
+                }
+            },
+            () => _vm.ListedUsageTools,
+            AppDark(_options),
+            _settings.Appearance.Material);
+        _analyticsWindow.Closed += (_, _) => _analyticsWindow = null;
+        _analyticsWindow.ApplyAppearance(AppDark(_options), _settings.Appearance.Material);
+        _analyticsWindow.RefreshData();
+        _analyticsWindow.Show();
+        _analyticsWindow.Activate();
+    }
+
     private void OnUserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e) => _ui.BeginInvoke(() =>
     {
         ApplyTheme();
@@ -1122,6 +1217,8 @@ public sealed class TrayController : IDisposable
                 _settingsWindow.ApplyBackdrop();
             }
         }
+
+        _analyticsWindow?.ApplyAppearance(dark, _settings.Appearance.Material);
     }
 
     private void ApplyCustomColors(bool dark)

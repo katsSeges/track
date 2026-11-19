@@ -226,6 +226,7 @@
             <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="4,8,4,0">
                 <DockPanel>
                     <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Refresh" Command="{Binding RefreshCommand}" />
+                    <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Analytics…" Click="Analytics_Click" Margin="0,0,8,0" />
                     <TextBlock Text="{Binding ResetText}" Style="{StaticResource Small}" VerticalAlignment="Center" />
                 </DockPanel>
             </Border>

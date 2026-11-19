@@ -149,6 +149,7 @@ public class DocumentLogReaderTests
             "\n[]\n"
             + """{"$set":{"sessionId":"gemini-session"}}""" + "\n"
             + """{"$set":{"sessionId":""}}""" + "\n"
+            + """{"$set":[]}""" + "\n"
             + """{"$rewindTo":"missing"}""" + "\n"
             + """{"sessionId":42}""" + "\n"
             + """{"projectHash":"legacy","messages":[{"id":"missing-id","type":"gemini"},{"id":"bad-time","type":"gemini","timestamp":"not-a-time"},{"id":"missing-time","type":"gemini"},{"id":"no-tokens","type":"gemini","timestamp":"2026-11-18T12:00:00Z"},{"id":"zero","type":"gemini","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":0,"cached":0,"output":0}},{"id":"wrong-type","type":"user","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"missing-type","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"non-string-type","type":1,"timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"valid","type":"gemini","timestamp":"2026-11-18T12:00:00Z","model":"old","tokens":{"input":1}},{"id":"valid","type":"gemini","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":10,"cached":2,"output":4,"thoughts":5}}]}""" + "\n"));
