@@ -115,7 +115,7 @@ public sealed class UsageChart : FrameworkElement
             }
         }
 
-        var typeface = new Typeface(new FontFamily("Cascadia Mono, Consolas"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+        var typeface = new Typeface(new FontFamily("Segoe UI Variable Text, Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
         var dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         foreach (var label in chart.Axis)
         {
@@ -217,7 +217,7 @@ public sealed class UsageChart : FrameworkElement
             return;
         }
 
-        var block = new TextBlock { FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 11, LineHeight = 16 };
+        var block = new TextBlock { FontFamily = new FontFamily("Segoe UI Variable Text, Segoe UI"), FontSize = 11, LineHeight = 16 };
         var lines = chart.Bars[index].Tooltip.Split('\n');
         block.Inlines.Add(new Run(lines[0]) { FontWeight = FontWeights.SemiBold });
         foreach (var text in lines.Skip(1))

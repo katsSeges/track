@@ -100,28 +100,7 @@ public static class ColorPickerMath
         return (diameter / 2 + Math.Cos(angle) * radius, diameter / 2 + Math.Sin(angle) * radius);
     }
 
-    public static string ContrastTextHex(string backgroundHex)
-    {
-        var background = NormalizeHex(backgroundHex);
-        var black = ContrastRatio("#000000", background);
-        var white = ContrastRatio("#FFFFFF", background);
-        return black >= white ? "#000000" : "#FFFFFF";
-    }
-
-    public static string VisibleAccentHex(string accentHex, string surfaceHex)
-    {
-        var accent = NormalizeHex(accentHex);
-        var surface = NormalizeHex(surfaceHex);
-        if (ContrastRatio(accent, surface) >= 3)
-        {
-            return accent;
-        }
-
-        var black = ContrastRatio("#000000", surface);
-        var white = ContrastRatio("#FFFFFF", surface);
-        return black >= white ? "#000000" : "#FFFFFF";
-    }
-
+    /// <summary>WCAG contrast ratio of two colors (1 to 21).</summary>
     public static double ContrastRatio(string foregroundHex, string backgroundHex)
     {
         var foreground = Luminance(NormalizeHex(foregroundHex));

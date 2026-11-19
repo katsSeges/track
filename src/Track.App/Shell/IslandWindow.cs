@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -31,7 +32,6 @@ public sealed class IslandWindow : Window
     private static readonly Brush Outline = Frozen(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
     private static readonly Brush Done = Frozen(Color.FromRgb(0x3C, 0xCF, 0x62));
     private static readonly Brush Waiting = Frozen(Color.FromRgb(0xF5, 0xB7, 0x40));
-    private static readonly FontFamily Mono = new("Cascadia Mono, Consolas");
     private static readonly FontFamily Sans = new("Segoe UI Variable Text, Segoe UI");
 
     private readonly StackPanel _root = new() { Orientation = Orientation.Horizontal };
@@ -47,6 +47,8 @@ public sealed class IslandWindow : Window
     public IslandWindow()
     {
         WindowStyle = WindowStyle.None;
+        // One font everywhere (Sans); digits keep a fixed width so timers and counts do not jitter.
+        Typography.SetNumeralAlignment(this, FontNumeralAlignment.Tabular);
         AllowsTransparency = true;
         Background = Brushes.Transparent;
         Topmost = true;
@@ -303,11 +305,11 @@ public sealed class IslandWindow : Window
         {
             row.Children.Add(Text(c.MainText, White, margin: 9));
             row.Children.Add(c.NeedsYou ? Text("?", Waiting, bold: true, margin: 6) : Text("✓", Done, margin: 6));
-            row.Children.Add(Text(c.MainExtra, Dim, mono: true, margin: 6));
+            row.Children.Add(Text(c.MainExtra, Dim, margin: 6));
         }
         else if (c.State == IslandState.Active)
         {
-            _timer = Text(c.MainText, White, mono: true, margin: 9);
+            _timer = Text(c.MainText, White, margin: 9);
             row.Children.Add(_timer);
             if (c.SubAgentDots > 0 && c.MainTool is { } dotsFor)
             {
@@ -321,13 +323,13 @@ public sealed class IslandWindow : Window
                 row.Children.Add(dots);
             }
 
-            row.Children.Add(Text(c.MainExtra, Dim, mono: true, margin: 7));
+            row.Children.Add(Text(c.MainExtra, Dim, margin: 7));
             row.Children.Add(Text(c.Counter, Dim, margin: 7));
         }
         else
         {
             row.Children.Add(Text(c.MainText, Dim, margin: 2));
-            row.Children.Add(Text(c.MainExtra, White, mono: true, margin: 8));
+            row.Children.Add(Text(c.MainExtra, White, margin: 8));
         }
 
         return Pill(row, open: false);
@@ -378,7 +380,7 @@ public sealed class IslandWindow : Window
             header.Children.Add(minimize);
         }
 
-        var right = Text(c.HeaderRight, Dim, mono: true, size: 11);
+        var right = Text(c.HeaderRight, Dim, size: 11);
         DockPanel.SetDock(right, Dock.Right);
         header.Children.Add(right);
         header.Children.Add(Text(c.Header, White, bold: true));
@@ -406,10 +408,10 @@ public sealed class IslandWindow : Window
             title.Children.Add(Text(r.Name, White));
             title.Children.Add(Activity(IslandActivity.Wave, r.Tool));
             name.Children.Add(title);
-            name.Children.Add(Text(r.Detail, Dim, mono: true, size: 10.5));
+            name.Children.Add(Text(r.Detail, Dim, size: 10.5));
             var timers = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right };
-            var task = new TextBlock { Text = r.TaskTimer, Foreground = White, FontFamily = Mono, FontSize = 15, HorizontalAlignment = HorizontalAlignment.Right };
-            var session = Text(r.SessionTimer, Dim, mono: true, size: 10.5);
+            var task = new TextBlock { Text = r.TaskTimer, Foreground = White, FontFamily = Sans, FontSize = 15, HorizontalAlignment = HorizontalAlignment.Right };
+            var session = Text(r.SessionTimer, Dim, size: 10.5);
             _rowTimers.Add((task, session));
             timers.Children.Add(task);
             timers.Children.Add(session);
@@ -463,7 +465,7 @@ public sealed class IslandWindow : Window
                 BorderBrush = Rule,
                 BorderThickness = new Thickness(0, 1, 0, 0),
                 Padding = new Thickness(0, 5, 0, 5),
-                Child = Text($"{t.Name}   today {t.Today} · week {t.Week} · month {t.Month}", Dim, mono: true, size: 11),
+                Child = Text($"{t.Name}   today {t.Today} · week {t.Week} · month {t.Month}", Dim, size: 11),
             });
         }
 
@@ -471,7 +473,7 @@ public sealed class IslandWindow : Window
 
         if (c.Footer is not null)
         {
-            panel.Children.Add(new Border { BorderBrush = Rule, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 0), Child = Text(c.Footer, Dim, mono: true, size: 11) });
+            panel.Children.Add(new Border { BorderBrush = Rule, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 0), Child = Text(c.Footer, Dim, size: 11) });
         }
 
         return Pill(panel, open: true);
@@ -488,7 +490,7 @@ public sealed class IslandWindow : Window
             var logo = Logo(status.Tool, 16, 0);
             var name = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
             name.Children.Add(Text(status.Name, White));
-            name.Children.Add(Text(status.Detail, Dim, mono: true, size: 10.5));
+            name.Children.Add(Text(status.Detail, Dim, size: 10.5));
             var dot = new Ellipse
             {
                 Width = 6,
@@ -529,7 +531,7 @@ public sealed class IslandWindow : Window
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             FrameworkElement sign = x.Running
                 ? PulseDot(x.Tool, 6, new Thickness(0))
-                : new TextBlock { Text = "✓", Foreground = Done, FontFamily = Mono, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+                : new TextBlock { Text = "✓", Foreground = Done, FontFamily = Sans, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
             sign.HorizontalAlignment = HorizontalAlignment.Left;
             var head = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, FontSize = 11.5 };
             head.Inlines.Add(new System.Windows.Documents.Run(x.Name) { Foreground = White, FontWeight = FontWeights.Medium });
@@ -539,7 +541,7 @@ public sealed class IslandWindow : Window
             }
 
             head.ToolTip = x.Task is null ? x.Name : $"{x.Name} · {x.Task}";
-            var timer = new TextBlock { Text = x.Timer, Foreground = x.Running ? White : Done, FontFamily = Mono, FontSize = 12, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            var timer = new TextBlock { Text = x.Timer, Foreground = x.Running ? White : Done, FontFamily = Sans, FontSize = 12, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             _subTimers.Add(timer);
             Grid.SetColumn(head, 1);
             Grid.SetColumn(timer, 2);
@@ -548,7 +550,7 @@ public sealed class IslandWindow : Window
             grid.Children.Add(timer);
             if (x.Meta is { } meta)
             {
-                var line = Text(meta, Dim, mono: true, size: 10);
+                var line = Text(meta, Dim, size: 10);
                 line.TextTrimming = TextTrimming.CharacterEllipsis;
                 Grid.SetRow(line, 1);
                 Grid.SetColumn(line, 1);
@@ -595,10 +597,10 @@ public sealed class IslandWindow : Window
         if (u.Chart is { } chart)
         {
             var title = new DockPanel { Margin = new Thickness(0, 0, 0, 3) };
-            var top = Text(chart.TopText, Dim, mono: true, size: 10.5);
+            var top = Text(chart.TopText, Dim, size: 10.5);
             DockPanel.SetDock(top, Dock.Right);
             title.Children.Add(top);
-            title.Children.Add(Text(chart.Title, Dim, mono: true, size: 10.5));
+            title.Children.Add(Text(chart.Title, Dim, size: 10.5));
             panel.Children.Add(title);
             var view = new UsageChart { Chart = chart, BarsHeight = 64, SelectCommand = new RelayCommand(i => BarSelected?.Invoke((int)i!)) };
             _named["chart"] = view;
@@ -607,7 +609,7 @@ public sealed class IslandWindow : Window
 
         if (u.ComparisonText is { } compare)
         {
-            panel.Children.Add(new Border { Margin = new Thickness(0, 4, 0, 0), Child = Text(compare, Dim, mono: true, size: 10.5) });
+            panel.Children.Add(new Border { Margin = new Thickness(0, 4, 0, 0), Child = Text(compare, Dim, size: 10.5) });
         }
 
         var label = new DockPanel { Margin = new Thickness(0, 10, 0, 4) };
@@ -633,8 +635,8 @@ public sealed class IslandWindow : Window
             }
 
             name.Children.Add(Text(row.Name, White, margin: total ? 0 : 7, bold: total));
-            var big = new TextBlock { Text = row.TokenText, Foreground = White, FontFamily = Mono, FontSize = 13, FontWeight = total ? FontWeights.Bold : FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Right };
-            var sub = Text(row.SubText, Dim, mono: true, size: 10.5);
+            var big = new TextBlock { Text = row.TokenText, Foreground = White, FontFamily = Sans, FontSize = 13, FontWeight = total ? FontWeights.Bold : FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Right };
+            var sub = Text(row.SubText, Dim, size: 10.5);
             sub.HorizontalAlignment = HorizontalAlignment.Right;
             sub.Margin = new Thickness(0, 2, 0, 0);
             Grid.SetColumn(big, 1);
@@ -721,11 +723,11 @@ public sealed class IslandWindow : Window
         return template;
     }
 
-    private static TextBlock Text(string? text, Brush brush, bool mono = false, double margin = 0, double size = 12.5, bool bold = false) => new()
+    private static TextBlock Text(string? text, Brush brush, double margin = 0, double size = 12.5, bool bold = false) => new()
     {
         Text = text ?? "",
         Foreground = brush,
-        FontFamily = mono ? Mono : Sans,
+        FontFamily = Sans,
         FontSize = size,
         FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
         VerticalAlignment = VerticalAlignment.Center,

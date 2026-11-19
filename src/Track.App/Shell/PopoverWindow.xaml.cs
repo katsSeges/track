@@ -68,11 +68,10 @@ public partial class PopoverWindow : Window
 
     public bool Dark { get; set; }
 
-    public WindowMaterial Material { get; set; } = WindowMaterial.Acrylic;
 
     public void ApplyBackdrop()
     {
-        var supported = Native.ApplyBackdrop(this, Dark, Material);
+        var supported = Native.ApplyBackdrop(this, Dark);
         Surface.Background = (Brush)FindResource(supported ? "PopBg" : "PopSolid");
     }
 

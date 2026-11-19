@@ -22,10 +22,9 @@ public partial class ModelCardWindow : Window
 
     public bool Dark { get; set; }
 
-    public WindowMaterial Material { get; set; } = WindowMaterial.Acrylic;
 
     public void ApplyBackdrop() =>
-        Surface.Background = (Brush)FindResource(Native.ApplyBackdrop(this, Dark, Material) ? "PopBg" : "PopSolid");
+        Surface.Background = (Brush)FindResource(Native.ApplyBackdrop(this, Dark) ? "PopBg" : "PopSolid");
 
     /// <summary>Shows the card to the left of the popover, level with the row; above it when there is no room.</summary>
     public void ShowFor(ModelBreakdownViewModel card, Window popover, FrameworkElement row)

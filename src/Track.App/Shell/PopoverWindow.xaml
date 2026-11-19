@@ -6,7 +6,8 @@
         Title="Track" Width="330" SizeToContent="Height"
         WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
         Background="Transparent" FontFamily="{StaticResource Sans}" FontSize="13"
-        Foreground="{DynamicResource Fg}" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+        Foreground="{DynamicResource Fg}" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
+        Typography.NumeralAlignment="Tabular">
     <WindowChrome.WindowChrome>
         <WindowChrome GlassFrameThickness="-1" CaptionHeight="0" ResizeBorderThickness="0" CornerRadius="12" />
     </WindowChrome.WindowChrome>
@@ -46,7 +47,7 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-        <Style x:Key="ProviderSubText" TargetType="TextBlock" BasedOn="{StaticResource MonoSmall}">
+        <Style x:Key="ProviderSubText" TargetType="TextBlock" BasedOn="{StaticResource SmallNumbers}">
             <Setter Property="FontSize" Value="10.5" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding DataContext.CompactRows, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
@@ -60,10 +61,10 @@
         <StackPanel>
             <!-- Header -->
             <DockPanel Margin="4,2,4,8" Height="28">
-                <Button DockPanel.Dock="Right" Style="{StaticResource HeaderIconButton}" Margin="0,-6,-4,0"
+                <Button DockPanel.Dock="Right" Style="{StaticResource HeaderIconButton}" Margin="0,-4,-2,0"
                         ToolTip="Settings" AutomationProperties.Name="Settings" Click="Settings_Click">
                     <Path Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                          Width="16" Height="16" Stretch="Uniform">
+                          Width="14" Height="14" Stretch="Uniform">
                         <Path.Data>
                             <CombinedGeometry GeometryCombineMode="Exclude">
                                 <CombinedGeometry.Geometry1>
@@ -172,13 +173,13 @@
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
-                    <TextBlock DockPanel.Dock="Right" Text="{Binding Chart.TopText}" Style="{StaticResource MonoSmall}" VerticalAlignment="Center"
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding Chart.TopText}" Style="{StaticResource SmallNumbers}" VerticalAlignment="Center"
                                Visibility="{Binding ChartVisible, Converter={StaticResource Visible}}" />
-                    <TextBlock Text="{Binding ChartTitle}" Style="{StaticResource MonoSmall}" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding ChartTitle}" Style="{StaticResource SmallNumbers}" VerticalAlignment="Center" />
                 </DockPanel>
                 <StackPanel Visibility="{Binding ChartVisible, Converter={StaticResource Visible}}" Margin="0,3,0,0">
                     <shell:UsageChart x:Name="ChartView" Chart="{Binding Chart}" SelectCommand="{Binding SelectBucketCommand}" BarsHeight="64" />
-                    <TextBlock Text="{Binding ComparisonText}" Style="{StaticResource MonoSmall}" FontSize="10.5" Margin="0,4,0,0"
+                    <TextBlock Text="{Binding ComparisonText}" Style="{StaticResource SmallNumbers}" FontSize="10.5" Margin="0,4,0,0"
                                Visibility="{Binding ComparisonText, Converter={StaticResource NotNull}}" />
                 </StackPanel>
             </StackPanel>
@@ -212,7 +213,7 @@
                                                         Visibility="{Binding DataContext.RowLogos, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
                                         <TextBlock Text="{Binding Name}" Style="{StaticResource ProviderNameText}" FontWeight="Medium" />
                                     </StackPanel>
-                                    <TextBlock Grid.Column="1" Text="{Binding TokenText}" FontFamily="{StaticResource Mono}" Style="{StaticResource ProviderTokenText}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                    <TextBlock Grid.Column="1" Text="{Binding TokenText}" FontFamily="{StaticResource Sans}" Style="{StaticResource ProviderTokenText}" FontWeight="SemiBold" HorizontalAlignment="Right" />
                                     <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SubText}" Style="{StaticResource ProviderSubText}" HorizontalAlignment="Right" Margin="0,2,0,0" />
                                     <shell:BarFill Grid.Row="2" Grid.ColumnSpan="2" Fraction="{Binding BarFraction}" Key="{Binding LogoKey}" Height="3" Margin="0,5,0,0" />
                                 </Grid>
@@ -235,8 +236,8 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <TextBlock Text="Total" FontSize="12.5" FontWeight="SemiBold" />
-                    <TextBlock Grid.Column="1" Text="{Binding TotalRow.TokenText}" FontFamily="{StaticResource Mono}" FontSize="13" FontWeight="Bold" HorizontalAlignment="Right" />
-                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding TotalRow.SubText}" Style="{StaticResource MonoSmall}" HorizontalAlignment="Right" Margin="0,2,0,0" />
+                    <TextBlock Grid.Column="1" Text="{Binding TotalRow.TokenText}" FontFamily="{StaticResource Sans}" FontSize="13" FontWeight="Bold" HorizontalAlignment="Right" />
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding TotalRow.SubText}" Style="{StaticResource SmallNumbers}" HorizontalAlignment="Right" Margin="0,2,0,0" />
                 </Grid>
             </Border>
 
@@ -249,7 +250,7 @@
             <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="4,8,4,0">
                 <DockPanel>
                     <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Refresh" Command="{Binding RefreshCommand}" />
-                    <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Analytics…" Click="Analytics_Click" Margin="0,0,8,0" />
+                    <Button DockPanel.Dock="Right" Style="{StaticResource LinkButton}" Content="Analytics" Click="Analytics_Click" Margin="0,0,12,0" />
                     <TextBlock Text="{Binding ResetText}" Style="{StaticResource Small}" VerticalAlignment="Center" />
                 </DockPanel>
             </Border>

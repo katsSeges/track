@@ -86,8 +86,9 @@ For checking the app without clicking around:
 |---|---|
 | `TRACK_HOME=<dir>` | read logs from another home folder |
 | `TRACK_DATA=<dir>` | keep settings, snapshot and prices elsewhere |
+| `TRACK_INSTANCE=<name>` | run a test copy beside the installed Track (its own single-instance name); always with its own `TRACK_DATA` |
 | `TRACK_DIAG=1` | write the current state to `<data>\diag.txt` (incl. `subagent:` lines) |
-| `TRACK_POINTER_FILE=<file>` | drive the island with `x,y`, `click`, `minimize`, `fullscreen` lines, and the tabs and charts with `island:tab usage`, `island:period week`, `island:bar 17`, `popover:period month`, `popover:bar 29` |
+| `TRACK_POINTER_FILE=<file>` | drive the island with `x,y`, `click`, `minimize`, `fullscreen` lines, and the tabs and charts with `island:tab usage`, `island:period week`, `island:bar 17`, `popover:period month`, `popover:bar 29`, and the windows with `window:settings open`, `window:analytics close` |
 | `TRACK_CLOCK_OFFSET=<seconds>` | with `TRACK_DIAG=1` only: run the app's clock this far ahead (or behind) to watch midnight, week and month rollover |
 | `--open`, `--card <tool>`, `--theme light\|dark` | open the popover (and card) at start |
 | `--render-icons <dir>`, `--render-popover <dir>`, `--render-island <dir>`, `--render-settings <dir>`, `--render-analytics <dir>` | save PNGs and exit without changing user settings, snapshots or alert state |
@@ -99,8 +100,6 @@ Generate source-shaped fake provider logs and point both paths at temporary fold
 powershell -ExecutionPolicy Bypass -File scripts\demo-home.ps1 -Path "$env:TEMP\track-demo-home"
 $env:TRACK_HOME = "$env:TEMP\track-demo-home"
 $env:TRACK_DATA = "$env:TEMP\track-demo-data"
-$env:APPDATA = "$env:TEMP\track-demo-home\AppData\Roaming"
-$env:OPENCODE_DB = "$env:TEMP\track-demo-home\.local\share\opencode\opencode.db"
 .\src\Track.App\bin\Release\net10.0-windows\Track.exe --render-popover "$env:TEMP\track-after" --theme light
 ```
 
@@ -110,6 +109,11 @@ because Ollama has no token data. Track's own render switches produce illustrati
 they do **not** establish native Acrylic or Mica behavior, which must be observed separately on a supported Windows
 host. Render mode does not write settings, snapshots or budget-alert state. Always use temporary `TRACK_HOME` and
 `TRACK_DATA` paths and stop any running Track instance before launching a render because the app is single-instance.
-Do not automate real desktop clicks; use `TRACK_POINTER_FILE` and `TRACK_DIAG` for interaction checks.
+Do not automate real desktop clicks; use `TRACK_POINTER_FILE` and `TRACK_DIAG` for interaction checks. With
+`TRACK_INSTANCE` set, renders and measurements run while your own Track keeps running.
+
+**Idle cost** (the gate for every release): Release build, real logs, own `TRACK_DATA` with the island off, popover
+closed; settle, then sample `Get-Process` for 5 minutes. Targets: at most 0.5 % of one core and 60 MB working set,
+also 60 s after Settings and Analytics were opened and closed. The numbers per release are in the plans.
 
 Logos are simplified stand-in marks; see `src/Track.App/Assets/logos/README.md` to use official ones.

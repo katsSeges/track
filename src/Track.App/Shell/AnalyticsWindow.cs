@@ -3,199 +3,226 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using Track.Core;
 using Track.Core.Display;
 using Track.Core.Providers;
-using Track.Core.Settings;
 
 namespace Track.App.Shell;
 
+/// <summary>
+/// Analytics in the tray's own style (design canvas board "Analytics"): the range is a segmented control that
+/// applies at once, the numbers sit in one grouped row, a single chart switches between tokens and cost, and the
+/// tables and heatmap are grouped sections. Data is built only while the window is open.
+/// </summary>
 [ExcludeFromCodeCoverage(Justification = "WPF analytics UI; range and aggregate behavior is covered in Track.Core.")]
 internal sealed class AnalyticsWindow : Window
 {
+    private static readonly string[] DayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
     private readonly AnalyticsBuilder _builder;
     private readonly Func<AnalyticsRange, IEnumerable<Tool>, AnalyticsData> _build;
     private readonly Func<IReadOnlyList<Tool>> _visibleProviders;
-    private readonly Border _surface = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(16) };
-    private readonly StackPanel _rangeSelector = new() { Orientation = Orientation.Horizontal };
-    private readonly StackPanel _dateControls = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 2) };
+    private readonly Border _surface = new() { Padding = new Thickness(20, 6, 20, 16) };
+    private readonly Border _rangeTrack = new() { CornerRadius = new CornerRadius(7), Padding = new Thickness(2), Width = 320 };
     private readonly List<RadioButton> _rangeOptions = [];
-    private readonly TextBlock _startLabel = new() { Text = "From", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), FontSize = 11 };
-    private readonly DatePicker _start = new() { Width = 150, FontSize = 10, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Start date" };
-    private readonly TextBlock _endLabel = new() { Text = "To", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), FontSize = 11 };
-    private readonly DatePicker _end = new() { Width = 150, FontSize = 10, Margin = new Thickness(0, 0, 8, 0), ToolTip = "End date" };
-    private readonly TextBlock _status = new() { Margin = new Thickness(0, 4, 0, 6), FontSize = 11 };
+    private readonly StackPanel _custom = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+    private readonly DatePicker _start = new() { Width = 130, Margin = new Thickness(6, 0, 12, 0) };
+    private readonly DatePicker _end = new() { Width = 130, Margin = new Thickness(6, 0, 0, 0) };
+    private readonly TextBlock _rangeText = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
+    private readonly TextBlock _status = new() { FontSize = 11, Margin = new Thickness(4, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
     private readonly StackPanel _content = new();
-    private readonly AnalyticsChart _tokenChart = new(AnalyticsChartMetric.Tokens);
-    private readonly AnalyticsChart _costChart = new(AnalyticsChartMetric.Cost);
+    private readonly AnalyticsChart _chart = new();
     private AnalyticsRange _range;
     private AnalyticsData? _data;
     private bool _dark;
-    private WindowMaterial _material;
-    private int _selectedPreset;
+    private int _preset;
 
     public AnalyticsWindow(
         AnalyticsBuilder builder,
         Func<AnalyticsRange, IEnumerable<Tool>, AnalyticsData> build,
         Func<IReadOnlyList<Tool>> visibleProviders,
-        bool dark,
-        WindowMaterial material)
+        bool dark)
     {
         _builder = builder;
         _build = build;
         _visibleProviders = visibleProviders;
         _dark = dark;
-        _material = material;
         _range = builder.LastDays(7);
         Title = "Track Analytics";
-        Width = 1040;
-        Height = 820;
-        MinWidth = 800;
-        MinHeight = 560;
-        MaxHeight = SystemParameters.WorkArea.Height - 30;
+        Width = 880;
+        Height = Math.Min(980, SystemParameters.WorkArea.Height - 40);
+        MinWidth = 720;
+        MinHeight = 520;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        ResizeMode = ResizeMode.CanResizeWithGrip;
         Background = Brushes.Transparent;
-        SetResourceReference(Control.ForegroundProperty, "Fg");
+        FontSize = 12;
+        SetResourceReference(FontFamilyProperty, "Sans");
+        SetResourceReference(ForegroundProperty, "Fg");
+        Typography.SetNumeralAlignment(this, FontNumeralAlignment.Tabular);
         Content = _surface;
-        SourceInitialized += (_, _) =>
+        SourceInitialized += (_, _) => ApplyBackdrop();
+        Closed += (_, _) =>
         {
-            Native.MakeToolWindow(this, noActivate: false);
-            ApplyBackdrop();
+            // Nothing is kept once the window closes: the data and chart go with it.
+            _data = null;
+            _chart.Data = null;
         };
         BuildContent();
         RefreshData();
     }
 
-    public void ApplyAppearance(bool dark, WindowMaterial material)
+    public void ApplyAppearance(bool dark)
     {
         _dark = dark;
-        _material = material;
-        _tokenChart.InvalidateVisual();
-        _costChart.InvalidateVisual();
         if (IsLoaded)
         {
             ApplyBackdrop();
+            RebuildContent(); // the heatmap's accent shades are computed, so they follow the theme
         }
     }
 
     public void ApplyBackdrop()
     {
-        var supported = Native.ApplyBackdrop(this, _dark, _material);
+        var supported = Native.ApplyBackdrop(this, _dark);
         _surface.SetResourceReference(Border.BackgroundProperty, supported ? "PopBg" : "PopSolid");
-        _surface.SetResourceReference(Border.BorderBrushProperty, "Line");
     }
 
     public void PrepareForRender()
     {
-        MaxHeight = double.PositiveInfinity;
+        Height = double.NaN;
         SizeToContent = SizeToContent.Height;
-        if (_surface.Child is ScrollViewer scroll)
+        if (_surface.Child is DockPanel { Children: [.., ScrollViewer scroll] })
         {
             scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
         }
     }
 
-    public void SaveRangeSelectorForRender(string path)
-    {
-        SaveElement(_rangeSelector, path);
-    }
-
     public void SaveCustomRangeForRender(string windowPath, string calendarPath)
     {
-        _selectedPreset = 3;
-        _rangeOptions[_selectedPreset].IsChecked = true;
-        UpdateDateInputs();
+        _rangeOptions[3].IsChecked = true;
         UpdateLayout();
-        SaveWindowForRender(windowPath);
+        SaveElement(_surface, windowPath);
         _start.ApplyTemplate();
         _start.IsDropDownOpen = true;
         UpdateLayout();
-        SavePopupForRender(_start, calendarPath);
+        if (_start.Template.FindName("PART_Popup", _start) is Popup { Child: FrameworkElement calendar })
+        {
+            calendar.Measure(new Size(380, 360));
+            calendar.Arrange(new Rect(calendar.DesiredSize));
+            calendar.UpdateLayout();
+            SaveElement(calendar, calendarPath);
+        }
+
         _start.IsDropDownOpen = false;
     }
+
+    public void SaveWindowForRender(string path) => SaveElement(_surface, path);
 
     public void RefreshData()
     {
         _data = _build(_range, _visibleProviders());
-        _tokenChart.Data = _data;
-        _costChart.Data = _data;
         RebuildContent();
     }
 
     private void BuildContent()
     {
-        var labels = new[] { "7 days", "30 days", "90 days", "Custom" };
-        for (var index = 0; index < labels.Length; index++)
+        var ranges = new UniformGrid { Columns = 4 };
+        string[] labels = ["7 days", "30 days", "90 days", "Custom"];
+        for (var i = 0; i < labels.Length; i++)
         {
-            var selected = index;
-            var option = new RadioButton
-            {
-                Content = labels[index],
-                GroupName = "AnalyticsRange",
-                IsChecked = index == _selectedPreset,
-                Style = (Style)FindResource("Segment"),
-                Padding = new Thickness(9, 4, 9, 4),
-                ToolTip = index == 3 ? "Choose a custom date range" : $"Show the last {labels[index]}",
-            };
-            option.Checked += (_, _) =>
-            {
-                _selectedPreset = selected;
-                UpdateDateInputs();
-            };
+            var preset = i;
+            var option = new RadioButton { Content = labels[i], GroupName = "AnalyticsRange", Style = Res<Style>("Segment"), IsChecked = i == _preset };
+            option.Checked += (_, _) => SelectPreset(preset);
             _rangeOptions.Add(option);
-            _rangeSelector.Children.Add(option);
+            ranges.Children.Add(option);
         }
 
-        var rangeGroup = new Border { CornerRadius = new CornerRadius(7), Padding = new Thickness(2) };
-        rangeGroup.SetResourceReference(Border.BackgroundProperty, "RowBg");
-        rangeGroup.Child = _rangeSelector;
-        var apply = new Button { Content = "Apply range", Padding = new Thickness(10, 4, 10, 4) };
-        apply.SetResourceReference(Control.StyleProperty, "TrackPrimaryButton");
-        apply.Click += (_, _) => ApplyRange();
-        var export = new Button { Content = "Export CSV…", Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(8, 0, 0, 0) };
-        export.SetResourceReference(Control.StyleProperty, "LinkButton");
-        export.Click += (_, _) => ExportCsv();
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
-        actions.Children.Add(apply);
-        actions.Children.Add(export);
-        var rangeControls = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
-        rangeControls.Children.Add(rangeGroup);
-        rangeControls.Children.Add(actions);
-        _dateControls.Children.Add(_startLabel);
-        _dateControls.Children.Add(_start);
-        _dateControls.Children.Add(_endLabel);
-        _dateControls.Children.Add(_end);
-        _start.SetResourceReference(Control.FontFamilyProperty, "Mono");
-        _end.SetResourceReference(Control.FontFamilyProperty, "Mono");
-        _status.SetResourceReference(TextBlock.FontFamilyProperty, "Mono");
-        _status.FontSize = 10;
+        _rangeTrack.Child = ranges;
+        _rangeTrack.SetResourceReference(Border.BackgroundProperty, "RowBg");
+        AutomationProperties.SetName(_rangeTrack, "Range");
+        _rangeText.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
 
-        var root = new StackPanel();
-        var title = new DockPanel();
-        var heading = new TextBlock { Text = "Analytics", FontSize = 18, FontWeight = FontWeights.SemiBold };
-        heading.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
-        title.Children.Add(heading);
-        root.Children.Add(title);
-        root.Children.Add(rangeControls);
-        root.Children.Add(_dateControls);
-        root.Children.Add(_status);
-        root.Children.Add(_content);
-        root.SetResourceReference(Control.ForegroundProperty, "Fg");
+        var export = new Button { Content = "Export CSV…", Style = Res<Style>("LinkButton"), VerticalAlignment = VerticalAlignment.Center };
+        export.Click += (_, _) => ExportCsv();
+        var bar = new DockPanel();
+        DockPanel.SetDock(export, Dock.Right);
+        bar.Children.Add(export);
+        var left = new StackPanel { Orientation = Orientation.Horizontal };
+        left.Children.Add(_rangeTrack);
+        left.Children.Add(_rangeText);
+        bar.Children.Add(left);
+
+        _custom.Children.Add(Muted("From"));
+        _custom.Children.Add(_start);
+        _custom.Children.Add(Muted("To"));
+        _custom.Children.Add(_end);
+        _custom.Visibility = Visibility.Collapsed;
+        _start.SelectedDateChanged += (_, _) => ApplyCustom();
+        _end.SelectedDateChanged += (_, _) => ApplyCustom();
+        AutomationProperties.SetName(_start, "Start date");
+        AutomationProperties.SetName(_end, "End date");
         _status.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-        _surface.Child = new ScrollViewer
+        _status.Visibility = Visibility.Collapsed;
+
+        var header = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
+        header.Children.Add(bar);
+        header.Children.Add(_custom);
+        header.Children.Add(_status);
+
+        var root = new DockPanel();
+        DockPanel.SetDock(header, Dock.Top);
+        root.Children.Add(header);
+        root.Children.Add(new ScrollViewer
         {
-            Content = root,
+            Content = _content,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        };
-        _surface.SetResourceReference(Border.BackgroundProperty, "PopSolid");
-        UpdateDateInputs();
+            Focusable = false,
+        });
+        _surface.Child = root;
+    }
+
+    private void SelectPreset(int preset)
+    {
+        _preset = preset;
+        _custom.Visibility = preset == 3 ? Visibility.Visible : Visibility.Collapsed;
+        if (preset == 3)
+        {
+            _start.SelectedDate ??= _range.StartDate.ToDateTime(TimeOnly.MinValue);
+            _end.SelectedDate ??= _range.EndDateInclusive.ToDateTime(TimeOnly.MinValue);
+            ApplyCustom();
+            return;
+        }
+
+        _range = _builder.LastDays(preset switch { 0 => 7, 1 => 30, _ => 90 });
+        SetStatus("");
+        RefreshData();
+    }
+
+    private void ApplyCustom()
+    {
+        if (_preset != 3 || _start.SelectedDate is not { } start || _end.SelectedDate is not { } end)
+        {
+            return;
+        }
+
+        try
+        {
+            _range = _builder.CustomRange(DateOnly.FromDateTime(start), DateOnly.FromDateTime(end));
+            SetStatus("");
+            RefreshData();
+        }
+        catch (ArgumentException error)
+        {
+            SetStatus(error.Message);
+        }
     }
 
     private void RebuildContent()
@@ -205,324 +232,229 @@ internal sealed class AnalyticsWindow : Window
             return;
         }
 
+        _rangeText.Text = $"{data.Range.StartDate.ToString("ddd d MMM", CultureInfo.InvariantCulture)} – {data.Range.EndDateInclusive.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture)}";
         _content.Children.Clear();
-        _status.Text = data.Total.Tokens.Total == 0 ? "No token usage in this range." : $"{data.Range.StartDate:yyyy-MM-dd} to {data.Range.EndDateInclusive:yyyy-MM-dd}";
-        _content.Children.Add(SummaryRow(data));
-        _content.Children.Add(SectionTitle("Tokens per day · stacked by provider"));
-        _content.Children.Add(_tokenChart);
-        _content.Children.Add(ProviderLegend(data));
-        _content.Children.Add(SectionTitle("Estimated cost per day · known prices only"));
-        _content.Children.Add(_costChart);
-        _content.Children.Add(SectionTitle("Model breakdown"));
-        _content.Children.Add(ModelRows(data));
-        _content.Children.Add(SectionTitle("Busiest hours · local time"));
+        _content.Children.Add(Stats(data));
+        _content.Children.Add(ChartSection(data));
+
+        var tables = new Grid { Margin = new Thickness(0, 0, 0, 16) };
+        tables.ColumnDefinitions.Add(new ColumnDefinition());
+        tables.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+        tables.ColumnDefinitions.Add(new ColumnDefinition());
+        var models = Table("Models", "Model", "Cost",
+            data.Models.Take(8).Select(m => (m.Tool, m.Model, Format.Tokens(m.Totals.Tokens.Total), Format.Cost(m.Totals))),
+            "No models in this range.");
+        var sessions = Table("Top sessions", "Session", "Span",
+            data.TopSessions.Take(8).Select(s => (s.Tool, s.SessionId, Format.Tokens(s.Usage.Tokens.Total), Span(s.ObservedSpan))),
+            "No sessions in this range.");
+        Grid.SetColumn(sessions, 2);
+        tables.Children.Add(models);
+        tables.Children.Add(sessions);
+        _content.Children.Add(tables);
+
         _content.Children.Add(Heatmap(data));
-        _content.Children.Add(SectionTitle("Top sessions"));
-        _content.Children.Add(new TextBlock
-        {
-            Text = "A session is included when its first-to-last observed interval overlaps the selected range. Token totals are full-session totals; the first-to-last span is observed span, not active duration. Older 1.1.0 snapshots retained only seven days of session history, so older sessions may be missing until the new history window fills.",
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 8),
-            FontSize = 11,
-        });
-        _content.Children.Add(SessionRows(data));
-        _tokenChart.Data = data;
-        _costChart.Data = data;
+        _content.Children.Add(Footnote("Costs are estimates from known model prices. A session counts in full if any of it falls in the range; span is first to last activity, not time worked. Per-session history before 1.3.0 was kept for 7 days."));
     }
 
-    private UIElement SummaryRow(AnalyticsData data)
+    private UIElement Stats(AnalyticsData data)
     {
-        var row = new UniformGrid { Columns = 5, Margin = new Thickness(0, 8, 0, 8) };
-        var cards = new[]
+        var total = data.Total;
+        (string Label, string Value, string Note)[] tiles =
+        [
+            ("Tokens", Format.Tokens(total.Tokens.Total), $"in {Format.Tokens(total.InTokens)} · out {Format.Tokens(total.OutTokens)}"),
+            ("Estimated cost", Format.Cost(total), total.UnpricedTokens > 0 ? "some usage unpriced" : "known prices"),
+            ("Cache hits", data.CacheHitRate is { } hit ? hit.ToString("P0", CultureInfo.InvariantCulture) : "—", "of input tokens"),
+            ("Sessions", data.SessionCount.ToString(CultureInfo.InvariantCulture), data.Providers.Count == 1 ? "1 provider" : $"across {data.Providers.Count} providers"),
+            ("Median span", Span(data.MedianObservedSpan), "first to last activity"),
+        ];
+        var grid = new UniformGrid { Columns = tiles.Length };
+        for (var i = 0; i < tiles.Length; i++)
         {
-            SummaryCard("Tokens", Format.Tokens(data.Total.Tokens.Total)),
-            SummaryCard("Estimated cost", Format.Cost(data.Total)),
-            SummaryCard("Cache hit rate", data.CacheHitRate is { } hit ? hit.ToString("P1", CultureInfo.InvariantCulture) : "—"),
-            SummaryCard("Sessions", data.SessionCount.ToString(CultureInfo.InvariantCulture)),
-            SummaryCard("Median observed span", FormatSpan(data.MedianObservedSpan)),
-        };
-        for (var index = 0; index < cards.Length; index++)
-        {
-            var item = new Border { Child = cards[index], BorderThickness = index == 0 ? new Thickness(0) : new Thickness(1, 0, 0, 0) };
-            item.SetResourceReference(Border.BorderBrushProperty, "Line");
-            row.Children.Add(item);
+            var tile = new StackPanel { Margin = new Thickness(14, 12, 14, 12) };
+            tile.Children.Add(Muted(tiles[i].Label));
+            tile.Children.Add(new TextBlock { Text = tiles[i].Value, FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 3, 0, 2) });
+            var note = Muted(tiles[i].Note);
+            note.FontSize = 10.5;
+            note.TextTrimming = TextTrimming.CharacterEllipsis;
+            tile.Children.Add(note);
+            var cell = new Border { Child = tile, BorderThickness = new Thickness(i == 0 ? 0 : 1, 0, 0, 0) };
+            cell.SetResourceReference(Border.BorderBrushProperty, "Line");
+            grid.Children.Add(cell);
         }
 
-        return row;
+        return new Border { Style = Res<Style>("Group"), Padding = new Thickness(0), Margin = new Thickness(0, 0, 0, 16), Child = grid };
     }
 
-    private static UIElement SummaryCard(string label, string value)
+    private UIElement ChartSection(AnalyticsData data)
     {
-        var panel = new StackPanel { Margin = new Thickness(8, 4, 8, 4), MinWidth = 110 };
-        var heading = new TextBlock { Text = label, FontSize = 10, TextWrapping = TextWrapping.Wrap };
-        heading.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-        heading.SetResourceReference(TextBlock.FontFamilyProperty, "Mono");
-        panel.Children.Add(heading);
-        var metric = new TextBlock { Text = value, FontSize = 13, FontWeight = FontWeights.Medium, Margin = new Thickness(0, 2, 0, 0) };
-        metric.SetResourceReference(TextBlock.FontFamilyProperty, "Mono");
-        panel.Children.Add(metric);
-        return panel;
+        _chart.Data = data;
+        var metric = new UniformGrid { Columns = 2 };
+        foreach (var (value, label) in new[] { (AnalyticsChartMetric.Tokens, "Tokens"), (AnalyticsChartMetric.Cost, "Cost") })
+        {
+            var option = new RadioButton { Content = label, GroupName = "AnalyticsMetric", Style = Res<Style>("SegmentSmall"), IsChecked = _chart.Metric == value };
+            option.Checked += (_, _) => _chart.Metric = value;
+            metric.Children.Add(option);
+        }
+
+        var metricTrack = new Border { Style = Res<Style>("SegmentTrack"), Width = 140, Child = metric };
+        AutomationProperties.SetName(metricTrack, "Measure");
+        var head = new DockPanel { Margin = new Thickness(0, 0, 0, 10) };
+        DockPanel.SetDock(metricTrack, Dock.Right);
+        head.Children.Add(metricTrack);
+        head.Children.Add(new TextBlock { Text = "Per day", FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+
+        var legend = new WrapPanel { Margin = new Thickness(44, 8, 0, 0) };
+        foreach (var tool in data.Providers)
+        {
+            var swatch = new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center };
+            swatch.SetResourceReference(Border.BackgroundProperty, tool.ToString());
+            var item = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 14, 0) };
+            item.Children.Add(swatch);
+            item.Children.Add(Muted(ProviderCatalog.Get(tool).Name));
+            legend.Children.Add(item);
+        }
+
+        // The chart is kept between rebuilds (it holds the Tokens/Cost choice): take it out of the old section first.
+        (_chart.Parent as Panel)?.Children.Remove(_chart);
+        var body = new StackPanel { Margin = new Thickness(0, 12, 0, 12) };
+        body.Children.Add(head);
+        body.Children.Add(data.Total.Tokens.Total == 0 ? Muted("No token usage in this range.") : _chart);
+        body.Children.Add(legend);
+        return new Border { Style = Res<Style>("Group"), Padding = new Thickness(14, 0, 14, 0), Margin = new Thickness(0, 0, 0, 16), Child = body };
     }
 
-    private TextBlock SectionTitle(string text)
+    private Border Table(string title, string nameHeader, string lastHeader, IEnumerable<(Tool Tool, string Name, string Tokens, string Last)> rows, string empty)
     {
-        var title = new TextBlock
+        var body = new StackPanel { Margin = new Thickness(0, 12, 0, 8) };
+        body.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
+        body.Children.Add(TableRow(null, nameHeader, "Tokens", lastHeader, header: true));
+        var any = false;
+        foreach (var row in rows)
+        {
+            any = true;
+            body.Children.Add(TableRow(row.Tool, row.Name, row.Tokens, row.Last, header: false));
+        }
+
+        if (!any)
+        {
+            body.Children.Add(Muted(empty));
+        }
+
+        return new Border { Style = Res<Style>("Group"), Padding = new Thickness(14, 0, 14, 0), Child = body };
+    }
+
+    private static UIElement TableRow(Tool? tool, string name, string tokens, string last, bool header)
+    {
+        var grid = new Grid { MinHeight = header ? 20 : 30 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(68) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+        var label = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        if (tool is { } provider)
+        {
+            var swatch = new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(3), Margin = new Thickness(0, 0, 7, 0) };
+            swatch.SetResourceReference(Border.BackgroundProperty, provider.ToString());
+            label.Children.Add(swatch);
+        }
+
+        label.Children.Add(Cell(name, header, TextAlignment.Left, provider: tool));
+        var tokensCell = Cell(tokens, header, TextAlignment.Right);
+        var lastCell = Cell(last, header, TextAlignment.Right);
+        if (!header)
+        {
+            lastCell.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        }
+
+        Grid.SetColumn(tokensCell, 1);
+        Grid.SetColumn(lastCell, 2);
+        grid.Children.Add(label);
+        grid.Children.Add(tokensCell);
+        grid.Children.Add(lastCell);
+        var line = new Border { Child = grid, BorderThickness = new Thickness(0, header ? 0 : 1, 0, 0) };
+        line.SetResourceReference(Border.BorderBrushProperty, "Line");
+        return line;
+    }
+
+    private static TextBlock Cell(string text, bool header, TextAlignment alignment, Tool? provider = null)
+    {
+        var cell = new TextBlock
         {
             Text = text,
-            FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(2, 9, 0, 4),
+            TextAlignment = alignment,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            FontSize = header ? 11 : 12,
+            MaxWidth = alignment == TextAlignment.Left ? 230 : double.PositiveInfinity,
+            ToolTip = provider is { } tool ? $"{ProviderCatalog.Get(tool).Name} · {text}" : null,
         };
-        title.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
-        return title;
-    }
-
-    private UIElement ModelRows(AnalyticsData data)
-    {
-        var panel = RowsPanel();
-        AddTableHeader(panel, "Provider", "Model", "Tokens", "Estimated cost");
-        foreach (var model in data.Models)
+        if (header)
         {
-            AddTableRow(panel, ProviderCatalog.Get(model.Tool).Name, model.Model, Format.Tokens(model.Totals.Tokens.Total), Format.Cost(model.Totals));
+            cell.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
         }
 
-        if (data.Models.Count == 0)
-        {
-            panel.Children.Add(EmptyRow("No models in this range."));
-        }
-
-        return panel;
-    }
-
-    private UIElement SessionRows(AnalyticsData data)
-    {
-        var panel = RowsPanel();
-        AddTableHeader(panel, "Provider", "Session", "Full-session tokens", "Observed span");
-        foreach (var session in data.TopSessions)
-        {
-            AddTableRow(panel, ProviderCatalog.Get(session.Tool).Name, session.SessionId,
-                Format.Tokens(session.Usage.Tokens.Total), FormatSpan(session.ObservedSpan));
-        }
-
-        if (data.TopSessions.Count == 0)
-        {
-            panel.Children.Add(EmptyRow("No sessions overlap this range."));
-        }
-
-        return panel;
+        return cell;
     }
 
     private UIElement Heatmap(AnalyticsData data)
     {
-        var root = new StackPanel();
-        var hours = new UniformGrid { Columns = 24, Margin = new Thickness(48, 0, 0, 2) };
+        var accent = (TryFindResource("Accent") as SolidColorBrush)?.Color ?? Color.FromRgb(0x0A, 0x66, 0xD8);
+        var maximum = Math.Max(1, data.Heatmap.Max(cell => cell.Tokens));
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
         for (var hour = 0; hour < 24; hour++)
         {
-            hours.Children.Add(new TextBlock
-            {
-                Text = hour % 6 == 0 ? hour.ToString("00", CultureInfo.InvariantCulture) : "",
-                FontSize = 8,
-                HorizontalAlignment = HorizontalAlignment.Center,
-            });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
         }
 
-        root.Children.Add(hours);
-        var cells = new UniformGrid { Columns = 24, Rows = 7 };
-        var maximum = data.Heatmap.Max(cell => cell.Tokens);
-        var accent = (TryFindResource("Accent") as SolidColorBrush)?.Color ?? Colors.DodgerBlue;
+        for (var row = 0; row < 8; row++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(row == 0 ? 16 : 17) });
+        }
+
+        for (var hour = 0; hour < 24; hour += 6)
+        {
+            var label = Muted(hour.ToString("00", CultureInfo.InvariantCulture));
+            label.FontSize = 10;
+            Grid.SetColumn(label, hour + 1);
+            Grid.SetColumnSpan(label, 3);
+            grid.Children.Add(label);
+        }
+
+        foreach (var cell in data.Heatmap)
+        {
+            // Shades of the accent: a faint base so empty hours still show the grid, darker for more tokens.
+            var share = (double)cell.Tokens / maximum;
+            var alpha = (byte)(cell.Tokens == 0 ? 14 : 40 + 215 * share);
+            var square = new Border
+            {
+                CornerRadius = new CornerRadius(3),
+                Margin = new Thickness(1.5),
+                Background = new SolidColorBrush(Color.FromArgb(alpha, accent.R, accent.G, accent.B)),
+                ToolTip = $"{DayNames[cell.DayOfWeekMondayFirst]} {cell.Hour:00}:00 · {Format.Tokens(cell.Tokens)} tokens",
+            };
+            Grid.SetRow(square, cell.DayOfWeekMondayFirst + 1);
+            Grid.SetColumn(square, cell.Hour + 1);
+            grid.Children.Add(square);
+        }
+
         for (var day = 0; day < 7; day++)
         {
-            for (var hour = 0; hour < 24; hour++)
-            {
-                var cell = data.Heatmap.Single(item => item.DayOfWeekMondayFirst == day && item.Hour == hour);
-                var intensity = maximum == 0 ? 0 : (double)cell.Tokens / maximum;
-                var alpha = (byte)Math.Clamp(24 + (int)(231 * intensity), 24, 255);
-                var border = new Border
-                {
-                    Height = 13,
-                    Margin = new Thickness(1),
-                    CornerRadius = new CornerRadius(2),
-                    Background = new SolidColorBrush(Color.FromArgb(alpha, accent.R, accent.G, accent.B)),
-                    ToolTip = $"{DayName(day)} {hour:00}:00 · {Format.Tokens(cell.Tokens)} tokens",
-                };
-                cells.Children.Add(border);
-            }
+            var name = Muted(DayNames[day]);
+            name.FontSize = 10.5;
+            name.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetRow(name, day + 1);
+            grid.Children.Add(name);
         }
 
-        var labeled = new Grid();
-        labeled.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46) });
-        labeled.ColumnDefinitions.Add(new ColumnDefinition());
-        var days = new StackPanel();
-        for (var day = 0; day < 7; day++)
-        {
-            days.Children.Add(new TextBlock { Text = DayName(day), Height = 15, FontSize = 9, VerticalAlignment = VerticalAlignment.Center });
-        }
-
-        Grid.SetColumn(days, 0);
-        Grid.SetColumn(cells, 1);
-        labeled.Children.Add(days);
-        labeled.Children.Add(cells);
-        root.Children.Add(labeled);
-        return root;
-    }
-
-    private UIElement ProviderLegend(AnalyticsData data)
-    {
-        var legend = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(3, 0, 0, 4) };
-        foreach (var tool in data.Providers)
-        {
-            var item = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 12, 0) };
-            item.Children.Add(new Border
-            {
-                Width = 9,
-                Height = 9,
-                CornerRadius = new CornerRadius(5),
-                Background = (Brush)(TryFindResource(tool.ToString()) ?? Brushes.Gray),
-                Margin = new Thickness(0, 0, 4, 0),
-            });
-            item.Children.Add(new TextBlock { Text = ProviderCatalog.Get(tool).Name, FontSize = 10 });
-            legend.Children.Add(item);
-        }
-
-        return legend;
-    }
-
-    private void AddTableHeader(Panel panel, string first, string second, string third, string fourth) =>
-        AddTableRow(panel, first, second, third, fourth, bold: true);
-
-    private void AddTableRow(Panel panel, string first, string second, string third, string fourth, bool bold = false)
-    {
-        var row = new Grid { Margin = new Thickness(2, 2, 2, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star) });
-        var values = new[] { first, second, third, fourth };
-        for (var index = 0; index < values.Length; index++)
-        {
-            var text = new TextBlock
-            {
-                Text = values[index],
-                FontWeight = bold ? FontWeights.Medium : FontWeights.Normal,
-                FontSize = bold ? 10 : 11,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                Margin = new Thickness(5, 3, 8, 3),
-                ToolTip = values[index],
-            };
-            if (bold || index >= 2)
-            {
-                text.SetResourceReference(TextBlock.FontFamilyProperty, "Mono");
-                if (bold)
-                {
-                    text.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-                }
-            }
-            Grid.SetColumn(text, index);
-            row.Children.Add(text);
-        }
-
-        var line = new Border { BorderThickness = new Thickness(0, 0, 0, 1), Child = row };
-        line.SetResourceReference(Border.BorderBrushProperty, "Line");
-        panel.Children.Add(line);
-    }
-
-    private void ApplyRange()
-    {
-        try
-        {
-            _range = _selectedPreset switch
-            {
-                0 => _builder.LastDays(7),
-                1 => _builder.LastDays(30),
-                2 => _builder.LastDays(90),
-                _ => _builder.CustomRange(
-                    ParseDate(_start.SelectedDate, "start"),
-                    ParseDate(_end.SelectedDate, "end")),
-            };
-            RefreshData();
-        }
-        catch (ArgumentException error)
-        {
-            _status.Text = error.Message;
-        }
-    }
-
-    private void UpdateDateInputs()
-    {
-        var custom = _selectedPreset == 3;
-        _startLabel.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
-        _endLabel.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
-        _start.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
-        _end.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
-        _dateControls.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
-        if (custom)
-        {
-            if (string.IsNullOrWhiteSpace(_start.Text))
-            {
-                _start.SelectedDate = _range.StartDate.ToDateTime(TimeOnly.MinValue);
-            }
-
-            if (string.IsNullOrWhiteSpace(_end.Text))
-            {
-                _end.SelectedDate = _range.EndDateInclusive.ToDateTime(TimeOnly.MinValue);
-            }
-        }
-    }
-
-    private static DateOnly ParseDate(DateTime? value, string label) =>
-        value is { } date
-            ? DateOnly.FromDateTime(date)
-            : throw new ArgumentException($"Choose the {label} date.");
-
-    private void SaveWindowForRender(string path)
-    {
-        var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
-        var width = Math.Max(1, (int)Math.Ceiling(_surface.ActualWidth * scale));
-        var height = Math.Max(1, (int)Math.Ceiling(_surface.ActualHeight * scale));
-        var bitmap = new RenderTargetBitmap(width, height, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
-        bitmap.Render(_surface);
-        SaveBitmap(bitmap, path);
-    }
-
-    private static void SavePopupForRender(ComboBox selector, string path)
-    {
-        if (selector.Template.FindName("PART_Popup", selector) is Popup { Child: FrameworkElement content } popup)
-        {
-            content.Measure(new Size(380, 360));
-            content.Arrange(new Rect(new Point(0, 0), content.DesiredSize));
-            content.UpdateLayout();
-            SaveElement(content, path);
-        }
-    }
-
-    private static void SavePopupForRender(DatePicker picker, string path)
-    {
-        if (picker.Template.FindName("PART_Popup", picker) is Popup { Child: FrameworkElement content } popup)
-        {
-            content.Measure(new Size(380, 360));
-            content.Arrange(new Rect(new Point(0, 0), content.DesiredSize));
-            content.UpdateLayout();
-            SaveElement(content, path);
-        }
-    }
-
-    private static void SaveElement(FrameworkElement element, string path)
-    {
-        var scale = VisualTreeHelper.GetDpi(element).DpiScaleX;
-        var width = Math.Max(1, (int)Math.Ceiling(element.ActualWidth * scale));
-        var height = Math.Max(1, (int)Math.Ceiling(element.ActualHeight * scale));
-        var bitmap = new RenderTargetBitmap(width, height, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
-        bitmap.Render(element);
-        SaveBitmap(bitmap, path);
-    }
-
-    private static void SaveBitmap(RenderTargetBitmap bitmap, string path)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using var output = File.Create(path);
-        encoder.Save(output);
+        var head = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+        var hint = Muted("Local time · darker is more tokens");
+        DockPanel.SetDock(hint, Dock.Right);
+        head.Children.Add(hint);
+        head.Children.Add(new TextBlock { Text = "Busiest hours", FontWeight = FontWeights.SemiBold });
+        var body = new StackPanel { Margin = new Thickness(0, 12, 0, 12) };
+        body.Children.Add(head);
+        body.Children.Add(grid);
+        return new Border { Style = Res<Style>("Group"), Padding = new Thickness(14, 0, 14, 0), Child = body };
     }
 
     private void ExportCsv()
@@ -541,30 +473,53 @@ internal sealed class AnalyticsWindow : Window
         try
         {
             File.WriteAllText(dialog.FileName, AnalyticsCsv.Write(data), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            _status.Text = $"Exported {dialog.FileName}";
+            SetStatus($"Exported to {dialog.FileName}");
         }
-        catch (IOException error)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            _status.Text = $"Could not export CSV: {error.Message}";
-        }
-        catch (UnauthorizedAccessException error)
-        {
-            _status.Text = $"Could not export CSV: {error.Message}";
+            SetStatus($"Could not export: {error.Message}");
         }
     }
 
-    private static StackPanel RowsPanel() => new() { Margin = new Thickness(0, 0, 0, 4) };
+    private void SetStatus(string text)
+    {
+        _status.Text = text;
+        _status.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
 
-    private static TextBlock EmptyRow(string text) => new() { Text = text, Margin = new Thickness(4, 4, 0, 4), FontSize = 11 };
+    private static T Res<T>(string key) => (T)Application.Current.FindResource(key);
 
-    private static string FormatSpan(TimeSpan? span) => span switch
+    private static TextBlock Muted(string text)
+    {
+        var block = new TextBlock { Text = text, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        block.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        return block;
+    }
+
+    private static TextBlock Footnote(string text) => new() { Text = text, Style = Res<Style>("Footnote"), Margin = new Thickness(4, 12, 4, 0) };
+
+    private static string Span(TimeSpan? span) => span switch
     {
         null => "—",
-        { } value when value.TotalDays >= 1 => $"{(int)value.TotalDays} d {value.Hours} h",
-        { } value when value.TotalHours >= 1 => $"{(int)value.TotalHours} h {value.Minutes} min",
+        { TotalDays: >= 1 } value => $"{(int)value.TotalDays} d {value.Hours} h",
+        { TotalHours: >= 1 } value => $"{(int)value.TotalHours} h {value.Minutes:00}",
         { } value => $"{value.TotalMinutes:0} min",
     };
 
-    private static string DayName(int mondayFirstIndex) => CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(
-        (DayOfWeek)((mondayFirstIndex + 1) % 7));
+    private static void SaveElement(FrameworkElement element, string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        var scale = VisualTreeHelper.GetDpi(element).DpiScaleX;
+        var bitmap = new RenderTargetBitmap(
+            Math.Max(1, (int)Math.Ceiling(element.ActualWidth * scale)),
+            Math.Max(1, (int)Math.Ceiling(element.ActualHeight * scale)),
+            96 * scale,
+            96 * scale,
+            PixelFormats.Pbgra32);
+        bitmap.Render(element);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var output = File.Create(path);
+        encoder.Save(output);
+    }
 }

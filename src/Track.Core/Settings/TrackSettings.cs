@@ -43,31 +43,21 @@ public enum ThemeMode
     Dark,
 }
 
-public enum WindowMaterial
-{
-    Acrylic,
-    Mica,
-    MicaAlt,
-    Solid,
-}
-
 public sealed record ProviderColorOverride(string Light, string Dark);
 
+/// <summary>
+/// Theme and provider colors. The accent and the window material follow the tray and island (system blue, acrylic):
+/// they are not settings (user, 2026-11-19). Older files that still have them load fine; the fields are ignored.
+/// </summary>
 public sealed record AppearanceSettings
 {
-    public ThemeMode Theme { get; init; } = ThemeMode.System;
+    public ThemeMode Theme { get; set; } = ThemeMode.System;
 
-    public WindowMaterial Material { get; init; } = WindowMaterial.Acrylic;
-
-    public string AccentColor { get; init; } = "#0A66D8";
-
-    public Dictionary<Tool, ProviderColorOverride> ProviderColors { get; init; } = [];
+    public Dictionary<Tool, ProviderColorOverride> ProviderColors { get; set; } = [];
 
     public bool Equals(AppearanceSettings? other) =>
         other is not null
         && Theme == other.Theme
-        && Material == other.Material
-        && AccentColor == other.AccentColor
         && ProviderColors.Count == other.ProviderColors.Count
         && ProviderColors.All(pair => other.ProviderColors.TryGetValue(pair.Key, out var value) && pair.Value == value);
 
@@ -75,8 +65,6 @@ public sealed record AppearanceSettings
     {
         var hash = new HashCode();
         hash.Add(Theme);
-        hash.Add(Material);
-        hash.Add(AccentColor);
         foreach (var pair in ProviderColors.OrderBy(pair => pair.Key))
         {
             hash.Add(pair.Key);
@@ -89,13 +77,14 @@ public sealed record AppearanceSettings
 
 public sealed record BehaviorSettings
 {
-    public bool NotificationsEnabled { get; init; }
+    public bool NotificationsEnabled { get; set; }
 
-    public bool HotkeyEnabled { get; init; } = true;
+    /// <summary>Off until the user turns it on: a global shortcut takes those keys from every other app.</summary>
+    public bool HotkeyEnabled { get; set; }
 
-    public string HotkeyGesture { get; init; } = "Ctrl+Alt+Shift+T";
+    public string HotkeyGesture { get; set; } = "Ctrl+Alt+Shift+T";
 
-    public BudgetSettings Budget { get; init; } = new();
+    public BudgetSettings Budget { get; set; } = new();
 }
 
 public enum BudgetPeriod
@@ -111,13 +100,13 @@ public sealed record BudgetThreshold(decimal? Spend, long? Tokens)
 
 public sealed record BudgetSettings
 {
-    public bool Enabled { get; init; }
+    public bool Enabled { get; set; }
 
-    public BudgetPeriod Period { get; init; } = BudgetPeriod.Day;
+    public BudgetPeriod Period { get; set; } = BudgetPeriod.Day;
 
-    public BudgetThreshold Total { get; init; } = BudgetThreshold.Empty;
+    public BudgetThreshold Total { get; set; } = BudgetThreshold.Empty;
 
-    public Dictionary<Tool, BudgetThreshold> Providers { get; init; } = [];
+    public Dictionary<Tool, BudgetThreshold> Providers { get; set; } = [];
 
     public BudgetThreshold For(Tool? tool) => tool is { } provider && Providers.TryGetValue(provider, out var threshold)
         ? threshold

@@ -93,7 +93,8 @@ public sealed class TrayController : IDisposable
     private readonly AnalyticsBuilder _analyticsBuilder;
     private readonly AlertEvaluator _alertEvaluator = new();
     private readonly NotificationPolicy _notificationPolicy = new();
-    private HashSet<string> _firedBudgetAlerts = new(StringComparer.Ordinal);
+    private MenuItem? _startupMenuItem;
+    private IReadOnlySet<string> _firedBudgetAlerts = new HashSet<string>(StringComparer.Ordinal);
     private bool _alertStateAvailable;
     private string? _alertStateError;
     private readonly LiveStatusDetector _liveDetector;
@@ -498,7 +499,7 @@ public sealed class TrayController : IDisposable
             _vm.LiveUpdated(_live = _liveDetector.Detect());
         }
 
-        _popover = new PopoverWindow { DataContext = _vm, Dark = AppDark(_options), Material = _settings.Appearance.Material, Pinned = true, Left = -4000, Top = 0, ShowActivated = false };
+        _popover = new PopoverWindow { DataContext = _vm, Dark = AppDark(_options), Pinned = true, Left = -4000, Top = 0, ShowActivated = false };
         _popover.Show();
         foreach (var period in Enum.GetValues<Period>())
         {
@@ -518,7 +519,7 @@ public sealed class TrayController : IDisposable
         _vm.ToggleChartCommand.Execute(null);
         _popover.UpdateLayout();
 
-        _card = new ModelCardWindow { Dark = AppDark(_options), Material = _settings.Appearance.Material, Left = -4000, Top = 0 };
+        _card = new ModelCardWindow { Dark = AppDark(_options), Left = -4000, Top = 0 };
         foreach (var tool in Enum.GetValues<Tool>())
         {
             var row = FindRow(_popover, tool);
@@ -704,6 +705,21 @@ public sealed class TrayController : IDisposable
     }
 
     /// <summary>Compacts the managed heap and returns unused pages to Windows.</summary>
+    /// <summary>
+    /// After Settings or Analytics closes: give WPF a moment to let go of the window, then hand the memory back, so
+    /// opening a window once does not keep Track above its idle size (idle gate, plans/track-pr2-style-and-fixes.md).
+    /// </summary>
+    private void TrimSoon()
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Background, _ui) { Interval = TimeSpan.FromSeconds(3) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            TrimMemory();
+        };
+        timer.Start();
+    }
+
     private static void TrimMemory()
     {
         System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
@@ -825,14 +841,35 @@ public sealed class TrayController : IDisposable
             // Only the UI's pointer tick consumes the one-shot lines; the live update's full-screen check just peeks
             // (it used to swallow "click" now and then, found in the Phase 6 run).
             var island = lines.Where(l => l.StartsWith("island:", StringComparison.Ordinal) || l.StartsWith("popover:", StringComparison.Ordinal)).ToList();
+            // "window:settings open", "window:analytics close": open and close the windows for idle-cost runs.
+            var windows = lines.Where(l => l.StartsWith("window:", StringComparison.Ordinal)).ToList();
             if (!consume)
             {
                 return (point, false, lines.Contains("fullscreen"), false);
             }
 
-            if (click || minimize || island.Count > 0)
+            if (click || minimize || island.Count > 0 || windows.Count > 0)
             {
-                File.WriteAllLines(file, lines.Where(l => l is not ("click" or "minimize") && !island.Contains(l)));
+                File.WriteAllLines(file, lines.Where(l => l is not ("click" or "minimize") && !island.Contains(l) && !windows.Contains(l)));
+            }
+
+            foreach (var command in windows)
+            {
+                switch (command)
+                {
+                    case "window:settings open":
+                        OpenSettings(SettingsTab.General);
+                        break;
+                    case "window:settings close":
+                        _settingsWindow?.Close();
+                        break;
+                    case "window:analytics open":
+                        OpenAnalytics();
+                        break;
+                    case "window:analytics close":
+                        _analyticsWindow?.Close();
+                        break;
+                }
             }
 
             // "popover:period month", "popover:bar 23": the popover's tabs and chart, for rollover runs without a mouse.
@@ -964,7 +1001,6 @@ public sealed class TrayController : IDisposable
     {
         Directory.CreateDirectory(directory);
         var dark = AppDark(_options);
-        ApplyRenderAccent("#C450B8", dark);
         lock (_gate)
         {
             _usage.Prices = prices;
@@ -982,8 +1018,7 @@ public sealed class TrayController : IDisposable
                 }
             },
             () => _vm.ListedUsageTools,
-            dark,
-            _settings.Appearance.Material)
+            dark)
         {
             Left = -4000,
             Top = 0,
@@ -993,7 +1028,6 @@ public sealed class TrayController : IDisposable
         window.UpdateLayout();
         var theme = dark ? "dark" : "light";
         SaveWindow(window, Path.Combine(directory, $"analytics-{theme}.png"));
-        window.SaveRangeSelectorForRender(Path.Combine(directory, $"analytics-{theme}-range-segments.png"));
         window.SaveCustomRangeForRender(
             Path.Combine(directory, $"analytics-{theme}-custom-range.png"),
             Path.Combine(directory, $"analytics-{theme}-calendar.png"));
@@ -1003,26 +1037,20 @@ public sealed class TrayController : IDisposable
     private void RenderSettingsAndExit(string directory)
     {
         Directory.CreateDirectory(directory);
-        const string renderAccent = "#C450B8";
         var dark = AppDark(_options);
-        ApplyRenderAccent(renderAccent, dark);
         var demoBudget = new BudgetSettings
         {
             Enabled = true,
             Period = BudgetPeriod.Month,
-            Total = new BudgetThreshold(75m, 120_000),
+            Total = new BudgetThreshold(75m, 120_000_000),
             Providers = new Dictionary<Tool, BudgetThreshold>
             {
-                [Tool.Claude] = new(25m, 40_000),
-                [Tool.Codex] = new(30m, 50_000),
-                [Tool.Copilot] = new(20m, 30_000),
-                [Tool.Gemini] = new(15m, 25_000),
-                [Tool.OpenCode] = new(18m, 28_000),
+                [Tool.Claude] = new(25m, 40_000_000),
+                [Tool.Codex] = new(30m, null),
             },
         };
         var settings = _settings with
         {
-            Appearance = _settings.Appearance with { Material = WindowMaterial.Solid, AccentColor = renderAccent },
             Behavior = _settings.Behavior with
             {
                 NotificationsEnabled = true,
@@ -1030,7 +1058,7 @@ public sealed class TrayController : IDisposable
                 Budget = demoBudget,
             },
         };
-        var window = new SettingsWindow(settings)
+        var window = new SettingsWindow(settings, ProviderState)
         {
             Dark = dark,
             Left = -4000,
@@ -1045,22 +1073,13 @@ public sealed class TrayController : IDisposable
             SaveWindow(window, Path.Combine(directory, $"settings-{tab.ToString().ToLowerInvariant()}-{(dark ? "dark" : "light")}.png"));
         }
 
-        window.SaveProviderDropdownForRender(Path.Combine(directory, $"settings-provider-dropdown-{(dark ? "dark" : "light")}.png"));
-        window.SelectTab(SettingsTab.Appearance);
-        window.SaveColorPickerForRender(Path.Combine(directory, $"settings-color-wheel-{(dark ? "dark" : "light")}.png"), renderAccent);
+        window.SelectTab(SettingsTab.Providers);
+        window.ExpandProvider(Tool.Claude);
+        window.UpdateLayout();
+        SaveWindow(window, Path.Combine(directory, $"settings-providers-expanded-{(dark ? "dark" : "light")}.png"));
+        window.SaveColorPopoverForRender(Tool.Claude, Path.Combine(directory, $"settings-color-{(dark ? "dark" : "light")}.png"));
         window.Close();
         Application.Current.Shutdown();
-    }
-
-    private static void ApplyRenderAccent(string accent, bool dark)
-    {
-        var rgb = ColorPickerMath.ToRgb(ColorPickerMath.FromHex(accent));
-        Application.Current.Resources["Accent"] = new SolidColorBrush(Color.FromRgb(rgb.Red, rgb.Green, rgb.Blue));
-        Application.Current.Resources["AccentOn"] = new SolidColorBrush(
-            ColorPickerMath.ContrastTextHex(accent) == "#000000" ? Colors.Black : Colors.White);
-        var edge = ColorPickerMath.ToRgb(ColorPickerMath.FromHex(
-            ColorPickerMath.VisibleAccentHex(accent, dark ? "#28282C" : "#F6F6F8")));
-        Application.Current.Resources["AccentEdge"] = new SolidColorBrush(Color.FromRgb(edge.Red, edge.Green, edge.Blue));
     }
 
     private static void SaveWindow(Window window, string path)
@@ -1217,10 +1236,10 @@ public sealed class TrayController : IDisposable
     {
         if (_popover is null)
         {
-            _popover = new PopoverWindow { DataContext = _vm, Dark = AppDark(_options), Material = _settings.Appearance.Material };
+            _popover = new PopoverWindow { DataContext = _vm, Dark = AppDark(_options) };
             _popover.RowHovered += (tool, row) => ShowCard(tool, row);
             _popover.RowLeft += () => _card?.Hide();
-            _popover.SettingsRequested += () => OpenSettings(SettingsTab.Appearance);
+            _popover.SettingsRequested += () => OpenSettings(SettingsTab.General);
             _popover.AnalyticsRequested += OpenAnalytics;
             _popover.ChatTooltipRequested = tool => ChatLauncher.TooltipFor(tool, _settings.Providers.ChatTargetFor(tool));
             _popover.ChatLaunchRequested += tool => LaunchChat(tool);
@@ -1299,12 +1318,7 @@ public sealed class TrayController : IDisposable
             return;
         }
 
-        var updated = new HashSet<string>(_firedBudgetAlerts, StringComparer.Ordinal);
-        foreach (var alert in alerts)
-        {
-            updated.Add(alert.Key);
-        }
-
+        var updated = AlertEvaluator.Fired(_firedBudgetAlerts, alerts, periodStart);
         var saved = _alertStateStore.Save(updated);
         if (!saved.Success)
         {
@@ -1343,7 +1357,7 @@ public sealed class TrayController : IDisposable
             return;
         }
 
-        _card ??= new ModelCardWindow { Dark = AppDark(_options), Material = _settings.Appearance.Material };
+        _card ??= new ModelCardWindow { Dark = AppDark(_options) };
         ModelBreakdownViewModel card;
         lock (_gate)
         {
@@ -1394,14 +1408,8 @@ public sealed class TrayController : IDisposable
         menu.Items.Add(layout);
 
         var startup = new MenuItem { Header = "Start with Windows", IsCheckable = true, IsChecked = _settings.StartWithWindows };
-        startup.Click += (_, _) =>
-        {
-            ChangeSettings(_settings with { StartWithWindows = startup.IsChecked });
-            if (_options.ManageStartup)
-            {
-                new StartupManager(new StartupRegistry(), Environment.ProcessPath!).Apply(startup.IsChecked);
-            }
-        };
+        startup.Click += (_, _) => ChangeSettings(_settings with { StartWithWindows = startup.IsChecked });
+        _startupMenuItem = startup;
         menu.Items.Add(startup);
 
         var island = new MenuItem { Header = "Show top island", IsCheckable = true, IsChecked = _settings.Island.Enabled };
@@ -1412,7 +1420,7 @@ public sealed class TrayController : IDisposable
         };
         menu.Items.Add(island);
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Settings…", () => OpenSettings(SettingsTab.Appearance)));
+        menu.Items.Add(Item("Settings…", () => OpenSettings(SettingsTab.General)));
         menu.Items.Add(Item("Analytics…", OpenAnalytics));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Quit", () => Application.Current.Shutdown()));
@@ -1428,7 +1436,19 @@ public sealed class TrayController : IDisposable
 
     private void ChangeSettings(TrackSettings settings, bool fromSettingsWindow = false)
     {
+        // Start with Windows can be changed in the tray menu and in Settings: both write the Run entry here.
+        var startupChanged = settings.StartWithWindows != _settings.StartWithWindows;
         _settings = settings;
+        if (startupChanged && _options.ManageStartup && !IsRenderOnly)
+        {
+            new StartupManager(new StartupRegistry(), Environment.ProcessPath!).Apply(settings.StartWithWindows);
+        }
+
+        if (_startupMenuItem is not null)
+        {
+            _startupMenuItem.IsChecked = settings.StartWithWindows;
+        }
+
         if (!IsRenderOnly)
         {
             _settingsStore.Save(settings);
@@ -1448,16 +1468,29 @@ public sealed class TrayController : IDisposable
         UpdateTrayIcon(force: true);
     }
 
+    /// <summary>What Settings shows under a provider's name: its live status and when it was last used.</summary>
+    private (LiveStatus? Live, DateTimeOffset? LastUsed) ProviderState(Tool tool)
+    {
+        lock (_gate)
+        {
+            return (_live?.GetValueOrDefault(tool), _usage.LastUsed(tool));
+        }
+    }
+
     private void OpenSettings(SettingsTab tab)
     {
         if (_settingsWindow is null)
         {
-            _settingsWindow = new SettingsWindow(_settings)
+            _settingsWindow = new SettingsWindow(_settings, ProviderState)
             {
                 Dark = AppDark(_options),
             };
             _settingsWindow.SettingsChanged += (_, changed) => ChangeSettings(changed, fromSettingsWindow: true);
-            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            _settingsWindow.Closed += (_, _) =>
+            {
+                _settingsWindow = null;
+                TrimSoon();
+            };
         }
 
         _settingsWindow.Dark = AppDark(_options);
@@ -1483,10 +1516,13 @@ public sealed class TrayController : IDisposable
                 }
             },
             () => _vm.ListedUsageTools,
-            AppDark(_options),
-            _settings.Appearance.Material);
-        _analyticsWindow.Closed += (_, _) => _analyticsWindow = null;
-        _analyticsWindow.ApplyAppearance(AppDark(_options), _settings.Appearance.Material);
+            AppDark(_options));
+        _analyticsWindow.Closed += (_, _) =>
+        {
+            _analyticsWindow = null;
+            TrimSoon();
+        };
+        _analyticsWindow.ApplyAppearance(AppDark(_options));
         _analyticsWindow.RefreshData();
         _analyticsWindow.Show();
         _analyticsWindow.Activate();
@@ -1507,7 +1543,6 @@ public sealed class TrayController : IDisposable
         if (_popover is not null)
         {
             _popover.Dark = dark;
-            _popover.Material = _settings.Appearance.Material;
             if (_popover.IsLoaded)
             {
                 _popover.ApplyBackdrop();
@@ -1517,7 +1552,6 @@ public sealed class TrayController : IDisposable
         if (_card is not null)
         {
             _card.Dark = dark;
-            _card.Material = _settings.Appearance.Material;
             if (_card.IsLoaded)
             {
                 _card.ApplyBackdrop();
@@ -1533,22 +1567,12 @@ public sealed class TrayController : IDisposable
             }
         }
 
-        _analyticsWindow?.ApplyAppearance(dark, _settings.Appearance.Material);
+        _analyticsWindow?.ApplyAppearance(dark);
     }
 
     private void ApplyCustomColors(bool dark)
     {
         var resources = Application.Current.Resources;
-        var accent = TryColor(_settings.Appearance.AccentColor, out var customAccent)
-            ? customAccent
-            : Color.FromRgb(0x0A, 0x66, 0xD8);
-        resources["Accent"] = new SolidColorBrush(accent);
-        var accentHex = $"#{accent.R:X2}{accent.G:X2}{accent.B:X2}";
-        resources["AccentOn"] = new SolidColorBrush(
-            ColorPickerMath.ContrastTextHex(accentHex) == "#000000" ? Colors.Black : Colors.White);
-        resources["AccentEdge"] = new SolidColorBrush(
-            ParseColor(ColorPickerMath.VisibleAccentHex(accentHex, dark ? "#28282C" : "#F6F6F8")));
-
         foreach (var provider in ProviderCatalog.All)
         {
             if (_settings.Appearance.ProviderColors.TryGetValue(provider.Id, out var custom)
@@ -1579,9 +1603,4 @@ public sealed class TrayController : IDisposable
         return false;
     }
 
-    private static Color ParseColor(string hex) =>
-        Color.FromRgb(
-            byte.Parse(hex.AsSpan(1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture),
-            byte.Parse(hex.AsSpan(3, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture),
-            byte.Parse(hex.AsSpan(5, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture));
 }

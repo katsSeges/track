@@ -2,10 +2,10 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Style TargetType="{x:Type TextBox}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
-        <Setter Property="Background" Value="{DynamicResource InputBg}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
+        <Setter Property="Background" Value="{DynamicResource Field}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FieldBorder}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="9,6" />
+        <Setter Property="Padding" Value="8,3" />
         <Setter Property="CaretBrush" Value="{DynamicResource Fg}" />
         <Setter Property="SelectionBrush" Value="{DynamicResource Accent}" />
         <Setter Property="SelectionTextBrush" Value="{DynamicResource AccentOn}" />
@@ -21,7 +21,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
                             <Setter TargetName="Chrome" Property="BorderThickness" Value="1.5" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
@@ -36,10 +36,10 @@
 
     <Style x:Key="TrackButton" TargetType="{x:Type Button}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
-        <Setter Property="Background" Value="{DynamicResource SurfaceElevated}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
+        <Setter Property="Background" Value="{DynamicResource PopupBg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FieldBorder}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,7" />
+        <Setter Property="Padding" Value="10,4" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Template">
             <Setter.Value>
@@ -62,7 +62,7 @@
                             <Setter TargetName="Chrome" Property="Opacity" Value="0.72" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
                             <Setter TargetName="Chrome" Property="BorderThickness" Value="2" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
@@ -78,7 +78,7 @@
     <Style x:Key="TrackPrimaryButton" TargetType="{x:Type Button}" BasedOn="{StaticResource TrackButton}">
         <Setter Property="Foreground" Value="{DynamicResource AccentOn}" />
         <Setter Property="Background" Value="{DynamicResource Accent}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
     </Style>
     <Style TargetType="{x:Type Button}" BasedOn="{StaticResource TrackButton}" />
 
@@ -91,10 +91,10 @@
                 <ControlTemplate TargetType="{x:Type ToggleButton}">
                     <Border x:Name="Chrome"
                             Background="{TemplateBinding Background}"
-                            BorderBrush="{DynamicResource ControlBorder}"
+                            BorderBrush="{DynamicResource FieldBorder}"
                             BorderThickness="1"
                             CornerRadius="6">
-                        <Grid Margin="9,6">
+                        <Grid Margin="8,3">
                             <ContentPresenter x:Name="ContentSite"
                                               Content="{TemplateBinding Content}"
                                               ContentTemplate="{TemplateBinding ContentTemplate}"
@@ -102,9 +102,9 @@
                                               HorizontalAlignment="Left"
                                               VerticalAlignment="Center"
                                               Margin="0,0,24,0" />
-                            <Path Data="M 0 0 L 4 4 L 8 0"
+                            <Path Data="M 0 3.5 L 3 0.5 L 6 3.5 M 0 7.5 L 3 10.5 L 6 7.5"
                                   Stroke="{DynamicResource Muted}"
-                                  StrokeThickness="1.6"
+                                  StrokeThickness="1.2"
                                   HorizontalAlignment="Right"
                                   VerticalAlignment="Center"
                                   Margin="0,0,3,0" />
@@ -112,10 +112,10 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlHover}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource RowBg}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
                             <Setter TargetName="Chrome" Property="BorderThickness" Value="2" />
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -127,7 +127,7 @@
     <Style x:Key="TrackComboItem" TargetType="{x:Type ComboBoxItem}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="Padding" Value="8,4" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Template">
             <Setter.Value>
@@ -143,11 +143,10 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlHover}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource RowBg}" />
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlSelected}" />
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SegTrack}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Foreground" Value="{DynamicResource Muted}" />
@@ -160,8 +159,8 @@
 
     <Style TargetType="{x:Type ComboBox}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
-        <Setter Property="Background" Value="{DynamicResource InputBg}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
+        <Setter Property="Background" Value="{DynamicResource Field}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FieldBorder}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="ItemContainerStyle" Value="{StaticResource TrackComboItem}" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -190,8 +189,8 @@
                             <Border x:Name="DropDownBorder"
                                     MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
                                     MaxHeight="{TemplateBinding MaxDropDownHeight}"
-                                    Background="{DynamicResource SurfaceElevated}"
-                                    BorderBrush="{DynamicResource ControlBorder}"
+                                    Background="{DynamicResource PopupBg}"
+                                    BorderBrush="{DynamicResource FieldBorder}"
                                     BorderThickness="1"
                                     CornerRadius="7"
                                     Padding="4">
@@ -205,7 +204,7 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsDropDownOpen" Value="True">
-                            <Setter TargetName="ToggleButton" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="ToggleButton" Property="BorderBrush" Value="{DynamicResource Accent}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Foreground" Value="{DynamicResource Muted}" />
@@ -219,7 +218,7 @@
 
     <Style x:Key="TrackCalendarDayButton" TargetType="{x:Type CalendarDayButton}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
-        <Setter Property="FontFamily" Value="{StaticResource Mono}" />
+        <Setter Property="FontFamily" Value="{StaticResource Sans}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="1" />
@@ -237,15 +236,15 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlHover}" />
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource RowBg}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
                         </Trigger>
                         <Trigger Property="IsToday" Value="True">
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Accent}" />
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
                             <Setter Property="Foreground" Value="{DynamicResource AccentOn}" />
                         </Trigger>
                         <Trigger Property="IsInactive" Value="True">
@@ -267,7 +266,7 @@
 
     <Style x:Key="TrackCalendarButton" TargetType="{x:Type CalendarButton}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
-        <Setter Property="FontFamily" Value="{StaticResource Mono}" />
+        <Setter Property="FontFamily" Value="{StaticResource Sans}" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="BorderThickness" Value="1" />
@@ -286,11 +285,11 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlHover}" />
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource RowBg}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlSelected}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SegTrack}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Foreground" Value="{DynamicResource Muted}" />
@@ -303,10 +302,10 @@
     </Style>
 
     <Style x:Key="TrackCalendarItem" TargetType="{x:Type CalendarItem}">
-        <Setter Property="Background" Value="{DynamicResource SurfaceElevated}" />
+        <Setter Property="Background" Value="{DynamicResource PopupBg}" />
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
-        <Setter Property="FontFamily" Value="{StaticResource Mono}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
+        <Setter Property="FontFamily" Value="{StaticResource Sans}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FieldBorder}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Margin" Value="0,3" />
         <Setter Property="Template">
@@ -316,7 +315,7 @@
                         <DataTemplate x:Key="{x:Static CalendarItem.DayTitleTemplateResourceKey}">
                             <TextBlock Text="{Binding}"
                                        Foreground="{DynamicResource Muted}"
-                                   FontFamily="{StaticResource Mono}"
+                                   FontFamily="{StaticResource Sans}"
                                        FontSize="10"
                                        FontWeight="SemiBold"
                                        HorizontalAlignment="Center"
@@ -419,7 +418,7 @@
                             </Grid>
                         </Border>
                         <Border x:Name="PART_DisabledVisual"
-                                Background="{DynamicResource SurfaceElevated}"
+                                Background="{DynamicResource PopupBg}"
                                 CornerRadius="7"
                                 Opacity="0"
                                 IsHitTestVisible="False"
@@ -451,9 +450,9 @@
     </Style>
 
     <Style x:Key="TrackCalendar" TargetType="{x:Type Calendar}">
-        <Setter Property="Background" Value="{DynamicResource SurfaceElevated}" />
+        <Setter Property="Background" Value="{DynamicResource PopupBg}" />
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FieldBorder}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="8" />
         <Setter Property="CalendarItemStyle" Value="{StaticResource TrackCalendarItem}" />
@@ -465,8 +464,8 @@
 
     <Style TargetType="{x:Type DatePicker}">
         <Setter Property="Foreground" Value="{DynamicResource Fg}" />
-        <Setter Property="Background" Value="{DynamicResource InputBg}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource ControlBorder}" />
+        <Setter Property="Background" Value="{DynamicResource Field}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FieldBorder}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="MinHeight" Value="36" />
         <Setter Property="CalendarStyle" Value="{StaticResource TrackCalendar}" />
@@ -496,8 +495,8 @@
                                 Padding="0"
                                 Focusable="False"
                                 IsTabStop="False"
-                                Background="{DynamicResource InputBg}"
-                                BorderBrush="{DynamicResource ControlBorder}"
+                                Background="{DynamicResource Field}"
+                                BorderBrush="{DynamicResource FieldBorder}"
                                 BorderThickness="1"
                                 ToolTip="Open calendar">
                             <Button.Template>
@@ -519,11 +518,11 @@
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlHover}" />
-                                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource RowBg}" />
+                                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
                                         </Trigger>
                                         <Trigger Property="IsPressed" Value="True">
-                                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ControlSelected}" />
+                                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SegTrack}" />
                                         </Trigger>
                                         <Trigger Property="IsEnabled" Value="False">
                                             <Setter TargetName="Chrome" Property="Opacity" Value="0.55" />
@@ -542,7 +541,7 @@
                               Grid.ColumnSpan="2"
                               IsHitTestVisible="False"
                               Visibility="Collapsed">
-                            <Border Background="{DynamicResource SurfaceElevated}" Opacity="0.55" />
+                            <Border Background="{DynamicResource PopupBg}" Opacity="0.55" />
                         </Grid>
                     </Grid>
                     <ControlTemplate.Triggers>
@@ -569,8 +568,8 @@
                         <Border x:Name="Box"
                                 Width="16"
                                 Height="16"
-                                Background="{DynamicResource InputBg}"
-                                BorderBrush="{DynamicResource ControlBorder}"
+                                Background="{DynamicResource Field}"
+                                BorderBrush="{DynamicResource FieldBorder}"
                                 BorderThickness="1"
                                 CornerRadius="4"
                                 VerticalAlignment="Center">
@@ -591,15 +590,15 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Box" Property="Background" Value="{DynamicResource Accent}" />
-                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}" />
                             <Setter TargetName="Mark" Property="Visibility" Value="Visible" />
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="Box" Property="BorderThickness" Value="2" />
-                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Foreground" Value="{DynamicResource Muted}" />
@@ -639,7 +638,7 @@
                             <Setter Property="FontWeight" Value="SemiBold" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
-                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentEdge}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Foreground" Value="{DynamicResource Muted}" />
@@ -682,8 +681,8 @@
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Thumb}">
                     <Border x:Name="Chrome"
-                            Background="{DynamicResource ControlBorder}"
-                            BorderBrush="{DynamicResource SurfaceBg}"
+                            Background="{DynamicResource FieldBorder}"
+                            BorderBrush="{DynamicResource PopSolid}"
                             BorderThickness="1"
                             CornerRadius="5" />
                     <ControlTemplate.Triggers>
@@ -749,7 +748,7 @@
                     <Grid Height="24">
                         <Border Height="5"
                                 Background="{TemplateBinding Background}"
-                                BorderBrush="{DynamicResource ControlBorder}"
+                                BorderBrush="{DynamicResource FieldBorder}"
                                 BorderThickness="1"
                                 CornerRadius="3"
                                 VerticalAlignment="Center" />
@@ -781,5 +780,174 @@
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- ===== The tray's own controls for Settings and Analytics (design canvas, 2026-11-19) ===== -->
+
+    <!-- On/off switch: a 34 x 20 pill, accent when on. -->
+    <Style x:Key="Switch" TargetType="{x:Type ToggleButton}">
+        <Setter Property="Width" Value="34" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ToggleButton}">
+                    <Grid>
+                        <Border x:Name="Ring" Margin="-3" CornerRadius="13" BorderThickness="1.5" BorderBrush="Transparent" />
+                        <Border x:Name="Track" CornerRadius="10" Background="{DynamicResource SwitchOff}" Padding="2">
+                            <Ellipse x:Name="Knob" Width="16" Height="16" Fill="White" HorizontalAlignment="Left">
+                                <Ellipse.Effect>
+                                    <DropShadowEffect BlurRadius="2" ShadowDepth="0.5" Direction="270" Opacity="0.3" />
+                                </Ellipse.Effect>
+                            </Ellipse>
+                        </Border>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Track" Property="Background" Value="{DynamicResource Accent}" />
+                            <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Ring" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- The small segmented control inside a row (Theme, Auto/On/Off, Day/Month): RadioButtons in a SegmentTrack.
+         The big one (tabs, ranges) is the popover's Segment style. -->
+    <Style x:Key="SegmentSmall" TargetType="RadioButton" BasedOn="{StaticResource Segment}">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="Padding" Value="0,2" />
+        <Style.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+                <Setter Property="FontWeight" Value="SemiBold" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style x:Key="SegmentTrack" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource SegTrack}" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="Padding" Value="2" />
+    </Style>
+
+    <!-- A grouped (inset) section like System Settings: rows separated by hairlines. -->
+    <Style x:Key="Group" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource RowBg}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="12,0" />
+    </Style>
+
+    <Style x:Key="Caption" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{DynamicResource Muted}" />
+        <Setter Property="Margin" Value="4,0,4,6" />
+    </Style>
+
+    <Style x:Key="Footnote" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="Foreground" Value="{DynamicResource Muted}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="LineHeight" Value="15" />
+        <Setter Property="Margin" Value="4,6,4,0" />
+    </Style>
+
+    <!-- A round color well (provider colors): a click opens the color popover. -->
+    <Style x:Key="ColorWell" TargetType="Button">
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Ellipse x:Name="Ring" Margin="-3" StrokeThickness="1.5" Stroke="Transparent" />
+                        <Ellipse Fill="{TemplateBinding Background}" Stroke="{DynamicResource FieldBorder}" StrokeThickness="1" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Ring" Property="Stroke" Value="{DynamicResource FieldBorder}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Ring" Property="Stroke" Value="{DynamicResource Accent}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- One key of a shortcut (Ctrl, Alt, T). -->
+    <Style x:Key="KeyChip" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource SegTrack}" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="6,1" />
+        <Setter Property="Margin" Value="0,0,4,0" />
+    </Style>
+
+    <!-- A field that records a shortcut: looks like a text field and shows key chips. -->
+    <Style x:Key="ShortcutField" TargetType="Button">
+        <Setter Property="Foreground" Value="{DynamicResource Fg}" />
+        <Setter Property="Background" Value="{DynamicResource Field}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FieldBorder}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="6,3,2,3">
+                        <ContentPresenter VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Tooltips and the tray menu follow the theme too. -->
+    <Style TargetType="{x:Type ToolTip}">
+        <Setter Property="Foreground" Value="{DynamicResource Fg}" />
+        <Setter Property="Background" Value="{DynamicResource PopupBg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FieldBorder}" />
+        <Setter Property="FontFamily" Value="{StaticResource Sans}" />
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ToolTip}">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="8,4">
+                        <ContentPresenter />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="{x:Type ContextMenu}">
+        <Setter Property="Foreground" Value="{DynamicResource Fg}" />
+        <Setter Property="Background" Value="{DynamicResource PopupBg}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource FieldBorder}" />
+        <Setter Property="FontFamily" Value="{StaticResource Sans}" />
+    </Style>
+
+    <Style TargetType="{x:Type MenuItem}">
+        <Setter Property="Foreground" Value="{DynamicResource Fg}" />
+        <Setter Property="Background" Value="{DynamicResource PopupBg}" />
     </Style>
 </ResourceDictionary>

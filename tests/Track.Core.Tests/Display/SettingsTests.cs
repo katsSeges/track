@@ -22,9 +22,10 @@ public class SettingsTests
             (true, Period.Today, 30, IconLayout.Triangle, IdleLook.GreyMark, NothingRunningLook.AllGrey, true),
             (s.StartWithWindows, s.LastPeriod, s.RefreshSeconds, s.IconLayout, s.IdleLook, s.NothingRunningLook, s.RowLogos));
         Assert.Equal(new VisibilitySettings(), s.Visibility);
-        Assert.Equal((ThemeMode.System, WindowMaterial.Acrylic, "#0A66D8"), (s.Appearance.Theme, s.Appearance.Material, s.Appearance.AccentColor));
+        Assert.Equal(ThemeMode.System, s.Appearance.Theme);
         Assert.False(s.Behavior.NotificationsEnabled);
-        Assert.True(s.Behavior.HotkeyEnabled);
+        // A global shortcut takes keys from every app: off until the user turns it on.
+        Assert.False(s.Behavior.HotkeyEnabled);
         Assert.Equal("Ctrl+Alt+Shift+T", s.Behavior.HotkeyGesture);
     }
 
@@ -39,8 +40,7 @@ public class SettingsTests
 
         vm.SelectedTab = SettingsTab.Providers;
         vm.SetTheme(ThemeMode.Dark);
-        vm.SetMaterial(WindowMaterial.MicaAlt);
-        vm.SetAccentColor("#12ab34");
+        vm.SetStartWithWindows(false);
         vm.SetProviderColors(Tool.Gemini, "#112233", "#445566");
         vm.SetProviderMode(Tool.Gemini, ProviderMode.On);
         vm.SetChatTarget(Tool.Gemini, "gemini-cli");
@@ -52,8 +52,8 @@ public class SettingsTests
         vm.SetBudgetThreshold(Tool.Gemini, new BudgetThreshold(5, 400));
 
         Assert.Equal(SettingsTab.Providers, vm.SelectedTab);
-        Assert.Equal(12, changed.Count);
-        Assert.Equal("#12AB34", vm.Settings.Appearance.AccentColor);
+        Assert.Equal(11, changed.Count);
+        Assert.False(vm.Settings.StartWithWindows);
         Assert.Equal(new ProviderColorOverride("#112233", "#445566"), vm.Settings.Appearance.ProviderColors[Tool.Gemini]);
         Assert.Equal(ProviderMode.On, vm.Settings.Providers.ModeFor(Tool.Gemini));
         Assert.Equal("gemini-cli", vm.Settings.Providers.ChatTargetFor(Tool.Gemini));
@@ -71,7 +71,7 @@ public class SettingsTests
 
         vm.ResetProviderColors();
         Assert.Empty(vm.Settings.Appearance.ProviderColors);
-        Assert.Equal(13, changed.Count);
+        Assert.Equal(12, changed.Count);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class SettingsTests
     {
         var vm = new SettingsViewModel(new TrackSettings());
 
-        Assert.Throws<ArgumentException>(() => vm.SetAccentColor(color));
+        Assert.Throws<ArgumentException>(() => vm.SetProviderColors(Tool.Claude, color, "#000000"));
     }
 
     [Fact]
@@ -142,10 +142,10 @@ public class SettingsTests
     }
 
     [Fact]
-    public void Appearance_hash_code_handles_empty_and_custom_provider_colors()
+    public void Appearance_equality_and_hash_code_follow_the_provider_colors_content()
     {
         var empty = new AppearanceSettings();
-        var custom = empty with
+        AppearanceSettings Custom() => empty with
         {
             ProviderColors = new Dictionary<Tool, ProviderColorOverride>
             {
@@ -153,8 +153,11 @@ public class SettingsTests
             },
         };
 
-        _ = empty.GetHashCode();
-        _ = custom.GetHashCode();
+        // Equal content in two different dictionaries: equal, with the same hash (settings are compared to skip saves).
+        Assert.Equal(Custom(), Custom());
+        Assert.Equal(Custom().GetHashCode(), Custom().GetHashCode());
+        Assert.Equal(new AppearanceSettings().GetHashCode(), empty.GetHashCode());
+        Assert.NotEqual(empty, Custom());
     }
 
     [Fact]
@@ -258,6 +261,38 @@ public class SettingsTests
         var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new("""{"futureProperty":"ignored"}""") });
 
         Assert.Equal(new TrackSettings(), new SettingsStore(fs, Path).Load());
+    }
+
+    [Fact]
+    public void A_file_with_the_dropped_accent_and_material_keeps_everything_else()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [Path] = new("""{"appearance":{"theme":"Dark","material":"MicaAlt","accentColor":"#C450B8"},"startWithWindows":false}"""),
+        });
+
+        var loaded = new SettingsStore(fs, Path).Load();
+
+        Assert.Equal((ThemeMode.Dark, false), (loaded.Appearance.Theme, loaded.StartWithWindows));
+        Assert.Empty(loaded.Appearance.ProviderColors);
+    }
+
+    [Fact]
+    public void Partial_sections_keep_the_defaults_of_the_fields_they_leave_out()
+    {
+        // With init-only properties the JSON source generator set missing fields to null (a crash later).
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [Path] = new("""{"appearance":{},"behavior":{"notificationsEnabled":true,"budget":{"enabled":true}}}"""),
+        });
+
+        var loaded = new SettingsStore(fs, Path).Load();
+
+        Assert.Empty(loaded.Appearance.ProviderColors);
+        Assert.True(loaded.Behavior.NotificationsEnabled);
+        Assert.Equal("Ctrl+Alt+Shift+T", loaded.Behavior.HotkeyGesture);
+        Assert.Equal((true, BudgetPeriod.Day, BudgetThreshold.Empty), (loaded.Behavior.Budget.Enabled, loaded.Behavior.Budget.Period, loaded.Behavior.Budget.Total));
+        Assert.Empty(loaded.Behavior.Budget.Providers);
     }
 
     [Theory]

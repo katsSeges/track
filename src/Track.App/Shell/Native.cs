@@ -16,10 +16,7 @@ internal static partial class Native
     private const int DwmUseImmersiveDarkMode = 20;
     private const int DwmWindowCornerPreference = 33;
     private const int DwmSystemBackdropType = 38;
-    private const int BackdropNone = 1;
-    private const int BackdropMainWindow = 2;
     private const int BackdropTransientWindow = 3;
-    private const int BackdropTabbedWindow = 4;
     internal const int HotkeyMessage = 0x0312;
     internal const uint HotkeyModAlt = 0x0001;
     internal const uint HotkeyModControl = 0x0002;
@@ -31,27 +28,23 @@ internal static partial class Native
     private const int WsExToolWindow = 0x80;
     private const int WsExNoActivate = 0x08000000;
 
-    /// <summary>Applies the selected DWM material, rounded corners and title colors. False when a material is unsupported.</summary>
-    public static bool ApplyBackdrop(Window window, bool dark, WindowMaterial material)
+    /// <summary>
+    /// The acrylic backdrop of the tray popover, rounded corners and a light or dark title bar, for every Track
+    /// window. False when Windows has no backdrop (then the window draws its solid fallback).
+    /// </summary>
+    public static bool ApplyBackdrop(Window window, bool dark)
     {
         var hwnd = new WindowInteropHelper(window).Handle;
         HwndSource.FromHwnd(hwnd)!.CompositionTarget!.BackgroundColor = Colors.Transparent;
         var darkFlag = dark ? 1 : 0;
         var corner = CornerRound;
-        var backdrop = material switch
-        {
-            WindowMaterial.Acrylic => BackdropTransientWindow,
-            WindowMaterial.Mica => BackdropMainWindow,
-            WindowMaterial.MicaAlt => BackdropTabbedWindow,
-            WindowMaterial.Solid => BackdropNone,
-            _ => BackdropNone,
-        };
+        var backdrop = BackdropTransientWindow;
         DwmSetWindowAttribute(hwnd, DwmUseImmersiveDarkMode, ref darkFlag, sizeof(int));
         DwmSetWindowAttribute(hwnd, DwmWindowCornerPreference, ref corner, sizeof(int));
         var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
         DwmExtendFrameIntoClientArea(hwnd, ref margins);
         var result = DwmSetWindowAttribute(hwnd, DwmSystemBackdropType, ref backdrop, sizeof(int));
-        return material != WindowMaterial.Solid && result == 0;
+        return result == 0;
     }
 
     /// <summary>Never takes focus and stays out of Alt+Tab.</summary>

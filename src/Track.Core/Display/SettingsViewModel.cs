@@ -5,12 +5,12 @@ namespace Track.Core.Display;
 
 public enum SettingsTab
 {
-    Appearance,
+    General,
     Providers,
-    Behavior,
+    Alerts,
 }
 
-/// <summary>Plain .NET state and commands for the three Settings tabs.</summary>
+/// <summary>Plain .NET state and commands for the three Settings tabs (General, Providers, Alerts).</summary>
 public sealed class SettingsViewModel : ObservableObject
 {
     private TrackSettings _settings;
@@ -31,14 +31,8 @@ public sealed class SettingsViewModel : ObservableObject
     public void SetTheme(ThemeMode theme) =>
         Update(settings => settings with { Appearance = settings.Appearance with { Theme = theme } });
 
-    public void SetMaterial(WindowMaterial material) =>
-        Update(settings => settings with { Appearance = settings.Appearance with { Material = material } });
-
-    public void SetAccentColor(string color)
-    {
-        var normalized = ColorPickerMath.NormalizeHex(color);
-        Update(settings => settings with { Appearance = settings.Appearance with { AccentColor = normalized } });
-    }
+    public void SetStartWithWindows(bool enabled) =>
+        Update(settings => settings with { StartWithWindows = enabled });
 
     public void SetProviderMode(Tool tool, ProviderMode mode) =>
         Update(settings => settings with { Providers = settings.Providers.WithMode(tool, mode) });

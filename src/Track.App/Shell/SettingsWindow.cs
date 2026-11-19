@@ -1,542 +1,825 @@
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.IO;
+using System.Reflection;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Track.Core;
 using Track.Core.Display;
+using Track.Core.Live;
 using Track.Core.Providers;
 using Track.Core.Settings;
-using ThemeMode = Track.Core.Settings.ThemeMode;
+using TrackTheme = Track.Core.Settings.ThemeMode;
 
 namespace Track.App.Shell;
 
-[ExcludeFromCodeCoverage(Justification = "WPF Settings UI; state transitions and validation are tested in Track.Core.")]
+/// <summary>
+/// Settings in the tray's own style (design canvas boards "Settings · General / Providers / Alerts"): one segmented
+/// control for the tabs like the popover's Today/Week/Month, grouped rows with hairlines, switches, small segmented
+/// controls and color wells. Every change applies (and is saved) at once. A tab is built when it is shown, so it
+/// always reflects the current settings; nothing runs while the window is closed.
+/// </summary>
+[ExcludeFromCodeCoverage(Justification = "WPF Settings UI; state, parsing and status texts are tested in Track.Core (SettingsViewModel, SettingsText).")]
 internal sealed class SettingsWindow : Window
 {
-    private readonly Border _surface = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(16) };
-    private SettingsViewModel _viewModel;
-    private TabControl _tabs = null!;
-    private TextBlock _materialNote = null!;
-    private TextBlock _hotkeyStatus = null!;
-    private ColorPickerEditor? _accentEditor;
-    private ComboBox? _providerModeSelector;
+    private static readonly string Version =
+        typeof(SettingsWindow).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0] ?? "";
 
-    public SettingsWindow(TrackSettings settings)
+    private readonly Func<Tool, (LiveStatus? Live, DateTimeOffset? LastUsed)> _providerState;
+    private readonly Border _surface = new() { Padding = new Thickness(16, 6, 16, 12) };
+    private readonly ContentControl _page = new() { Focusable = false };
+    private readonly HashSet<Tool> _expanded = [];
+    private readonly RadioButton[] _tabButtons = new RadioButton[3];
+    private SettingsViewModel _viewModel;
+    private string _hotkeyStatus = "";
+    private ColorPopover? _colorPopover;
+
+    public SettingsWindow(TrackSettings settings, Func<Tool, (LiveStatus? Live, DateTimeOffset? LastUsed)> providerState)
     {
+        _providerState = providerState;
         _viewModel = new SettingsViewModel(settings);
         _viewModel.SettingsChanged += OnSettingsChanged;
         Title = "Track Settings";
-        Width = 560;
-        MinWidth = 500;
+        Width = 480;
         SizeToContent = SizeToContent.Height;
-        MaxHeight = SystemParameters.WorkArea.Height - 40;
+        ResizeMode = ResizeMode.CanMinimize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        ResizeMode = ResizeMode.CanResizeWithGrip;
         Background = Brushes.Transparent;
-        SetResourceReference(Control.ForegroundProperty, "Fg");
+        FontSize = 12;
+        SetResourceReference(FontFamilyProperty, "Sans");
+        SetResourceReference(ForegroundProperty, "Fg");
+        Typography.SetNumeralAlignment(this, FontNumeralAlignment.Tabular);
         Content = _surface;
-        SourceInitialized += (_, _) =>
-        {
-            Native.MakeToolWindow(this, noActivate: false);
-            ApplyBackdrop();
-        };
-        BuildTabs();
+        SourceInitialized += (_, _) => ApplyBackdrop();
+        _surface.Child = Layout();
+        ShowTab(_viewModel.SelectedTab);
     }
 
     public event EventHandler<TrackSettings>? SettingsChanged;
 
     public bool Dark { get; set; }
 
+    /// <summary>Settings changed elsewhere (the tray menu): show them.</summary>
     public void ApplySettings(TrackSettings settings)
     {
-        var selected = _viewModel.SelectedTab;
+        var tab = _viewModel.SelectedTab;
         _viewModel.SettingsChanged -= OnSettingsChanged;
-        _viewModel = new SettingsViewModel(settings) { SelectedTab = selected };
+        _viewModel = new SettingsViewModel(settings) { SelectedTab = tab };
         _viewModel.SettingsChanged += OnSettingsChanged;
-        BuildTabs();
-        ApplyBackdrop();
+        ShowTab(tab);
     }
 
-    public void SelectTab(SettingsTab tab)
+    public void SelectTab(SettingsTab tab) => ShowTab(tab);
+
+    public void SetHotkeyStatus(string status)
     {
-        _viewModel.SelectedTab = tab;
-        _tabs.SelectedIndex = (int)tab;
+        _hotkeyStatus = status;
+        if (_viewModel.SelectedTab == SettingsTab.General)
+        {
+            ShowTab(SettingsTab.General);
+        }
     }
 
-    public void SaveColorPickerForRender(string path, string color) => _accentEditor?.SavePopupForRender(path, color);
-
-    public void SaveProviderDropdownForRender(string path)
+    public void ExpandProvider(Tool tool)
     {
-        if (_providerModeSelector is null)
+        _expanded.Add(tool);
+        ShowTab(SettingsTab.Providers);
+    }
+
+    /// <summary>Render mode: draws the color popover of <paramref name="tool"/>'s light color to a PNG.</summary>
+    public void SaveColorPopoverForRender(Tool tool, string path)
+    {
+        var provider = ProviderCatalog.Get(tool);
+        var popover = new ColorPopover(this, $"{provider.Name} · Light", ColorsFor(provider).Light, provider.Colors.Light, _ => { });
+        var surface = popover.Surface;
+        surface.Margin = new Thickness(0); // the margin only makes room for the shadow in a real popup
+        surface.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        surface.Arrange(new Rect(surface.DesiredSize));
+        surface.UpdateLayout();
+        SaveElement(surface, path);
+    }
+
+    public void ApplyBackdrop()
+    {
+        if (!IsLoaded && new System.Windows.Interop.WindowInteropHelper(this).Handle == IntPtr.Zero)
         {
             return;
         }
 
-        _viewModel.SelectedTab = SettingsTab.Providers;
-        _tabs.SelectedIndex = (int)SettingsTab.Providers;
-        _providerModeSelector.ApplyTemplate();
-        _providerModeSelector.IsDropDownOpen = true;
-        UpdateLayout();
-        if (_providerModeSelector.Template.FindName("PART_Popup", _providerModeSelector) is Popup { Child: FrameworkElement popupContent } popup)
-        {
-            popupContent.Measure(new Size(400, 300));
-            popupContent.Arrange(new Rect(new Point(0, 0), popupContent.DesiredSize));
-            popupContent.UpdateLayout();
-            SaveElement(popupContent, path);
-        }
-    }
-
-    public void SetHotkeyStatus(string status) => _hotkeyStatus.Text = status;
-
-    public void ApplyBackdrop()
-    {
-        var supported = Native.ApplyBackdrop(this, Dark, _viewModel.Settings.Appearance.Material);
+        var supported = Native.ApplyBackdrop(this, Dark);
         _surface.SetResourceReference(Border.BackgroundProperty, supported ? "PopBg" : "PopSolid");
-        _surface.SetResourceReference(Border.BorderBrushProperty, "Line");
-        _materialNote.Text = supported || _viewModel.Settings.Appearance.Material == WindowMaterial.Solid
-            ? "Changes apply immediately and are saved automatically."
-            : "This material is not supported on this Windows version; Track is using Solid.";
     }
 
-    private void BuildTabs()
+    private UIElement Layout()
     {
-        _accentEditor = null;
-        _providerModeSelector = null;
-        _tabs = new TabControl { SelectedIndex = (int)_viewModel.SelectedTab };
-        _tabs.SetResourceReference(Control.BackgroundProperty, "PopSolid");
-        _tabs.SelectionChanged += (_, _) =>
+        var tabs = new UniformGrid { Columns = 3 };
+        string[] names = ["General", "Providers", "Alerts"];
+        for (var i = 0; i < names.Length; i++)
         {
-            if (_tabs.SelectedIndex >= 0 && _tabs.SelectedIndex < Enum.GetValues<SettingsTab>().Length)
+            var tab = (SettingsTab)i;
+            var button = new RadioButton { Content = names[i], GroupName = "SettingsTab", Style = Res<Style>("Segment") };
+            button.Checked += (_, _) =>
             {
-                _viewModel.SelectedTab = (SettingsTab)_tabs.SelectedIndex;
-            }
-        };
-        _tabs.Items.Add(new TabItem { Header = "Appearance", Content = AppearanceTab() });
-        _tabs.Items.Add(new TabItem { Header = "Providers", Content = ProvidersTab() });
-        _tabs.Items.Add(new TabItem { Header = "Behavior", Content = BehaviorTab() });
-        _tabs.SetResourceReference(Control.ForegroundProperty, "Fg");
-        var root = new StackPanel();
-        var title = new TextBlock { Text = "Settings", FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, 0, 0, 10) };
-        title.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
-        root.Children.Add(title);
-        root.Children.Add(_tabs);
-        _materialNote = new TextBlock { Margin = new Thickness(3, 10, 3, 0), FontSize = 11 };
-        root.Children.Add(_materialNote);
-        root.SetResourceReference(Control.ForegroundProperty, "Fg");
-        _surface.Child = root;
-        _materialNote.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-    }
-
-    private UIElement AppearanceTab()
-    {
-        var settings = _viewModel.Settings.Appearance;
-        var panel = TabPanel();
-        panel.Children.Add(SectionHeading("Appearance", "Choose how Track follows Windows and how its windows feel."));
-        var theme = Combo(Enum.GetValues<ThemeMode>(), settings.Theme, value => _viewModel.SetTheme(value));
-        var material = Combo(Enum.GetValues<WindowMaterial>(), settings.Material, value =>
-        {
-            _viewModel.SetMaterial(value);
-            ApplyBackdrop();
-        });
-        _accentEditor = new ColorPickerEditor("Accent", settings.AccentColor, new AppearanceSettings().AccentColor, _viewModel.SetAccentColor);
-        var appearanceFields = new StackPanel();
-        appearanceFields.Children.Add(FormRow("Theme", theme));
-        appearanceFields.Children.Add(FormRow("Window material", material));
-        appearanceFields.Children.Add(FormRow("Accent color", _accentEditor));
-        panel.Children.Add(appearanceFields);
-        panel.Children.Add(PreferenceDivider());
-
-        var providerColors = PreferenceGroup("Provider colors");
-        var colorsNote = MutedText("Light and dark colors are independent. Use a swatch to open the color wheel.");
-        colorsNote.TextWrapping = TextWrapping.Wrap;
-        colorsNote.Margin = new Thickness(0, 0, 0, 6);
-        providerColors.Children.Add(colorsNote);
-        panel.Children.Add(providerColors);
-        var columns = new Grid { Margin = new Thickness(2, 0, 2, 4) };
-        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(136) });
-        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(136) });
-        AddGridText(columns, "Provider", 0);
-        AddGridText(columns, "Light", 1, muted: true);
-        AddGridText(columns, "Dark", 2, muted: true);
-        panel.Children.Add(columns);
-        var colorRows = new StackPanel();
-        var providers = ProviderCatalog.All;
-        for (var index = 0; index < providers.Count; index++)
-        {
-            var provider = providers[index];
-            var colors = settings.ProviderColors.TryGetValue(provider.Id, out var custom)
-                ? custom
-                : new ProviderColorOverride(provider.Colors.Light, provider.Colors.Dark);
-            var row = new Grid { Margin = new Thickness(2, 2, 2, 2) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(136) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(136) });
-            AddGridText(row, provider.Name, 0);
-            var light = new ColorPickerEditor("Light", colors.Light, provider.Colors.Light, value =>
-                _viewModel.SetProviderColors(provider.Id, value, colors.Dark), showLabel: false);
-            var dark = new ColorPickerEditor("Dark", colors.Dark, provider.Colors.Dark, value =>
-                _viewModel.SetProviderColors(provider.Id, colors.Light, value), showLabel: false);
-            Grid.SetColumn(light, 1);
-            Grid.SetColumn(dark, 2);
-            row.Children.Add(light);
-            row.Children.Add(dark);
-            colorRows.Children.Add(row);
-        }
-
-        panel.Children.Add(colorRows);
-        var reset = new Button
-        {
-            Content = "Reset provider colors",
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Margin = new Thickness(2, 5, 0, 0),
-            Style = (Style)FindResource("LinkButton"),
-        };
-        reset.Click += (_, _) => _viewModel.ResetProviderColors();
-        panel.Children.Add(reset);
-        return Scroll(panel);
-    }
-
-    private UIElement ProvidersTab()
-    {
-        var panel = TabPanel();
-        panel.Children.Add(SectionHeading("Providers", "Auto follows recent usage or live status. On always shows the provider; Off disables scanning and display."));
-        var header = ProviderRowGrid();
-        AddGridText(header, "Provider", 0, muted: true);
-        AddGridText(header, "Display", 1, muted: true);
-        AddGridText(header, "Open chat with", 3, muted: true);
-        panel.Children.Add(header);
-        var providers = ProviderCatalog.All;
-        for (var index = 0; index < providers.Count; index++)
-        {
-            var provider = providers[index];
-            var mode = _viewModel.Settings.Providers.ModeFor(provider.Id);
-            var selector = Combo(Enum.GetValues<ProviderMode>(), mode, value => _viewModel.SetProviderMode(provider.Id, value), minWidth: 0);
-            selector.ToolTip = $"{provider.Name} display mode";
-            if (_providerModeSelector is null)
-            {
-                _providerModeSelector = selector;
-            }
-
-            var targets = ChatTargetResolver.OptionsFor(provider.Id);
-            var selectedTarget = _viewModel.Settings.Providers.ChatTargetFor(provider.Id) ?? "";
-            var targetSelector = new ComboBox
-            {
-                ItemsSource = targets.Select(target => target.Label).ToArray(),
-                SelectedItem = targets.FirstOrDefault(target => target.Id == selectedTarget)?.Label ?? targets[0].Label,
-                MinWidth = 0,
-                Padding = new Thickness(5, 3, 5, 3),
-                ToolTip = $"{provider.Name} chat target",
-            };
-            targetSelector.SelectionChanged += (_, _) =>
-            {
-                if (targetSelector.SelectedItem is string label
-                    && targets.FirstOrDefault(target => target.Label == label) is { } target)
+                if (_viewModel.SelectedTab != tab || _page.Content is null)
                 {
-                    _viewModel.SetChatTarget(provider.Id, target.Id);
+                    ShowTab(tab);
                 }
             };
-            var row = ProviderRowGrid();
-            var identity = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            identity.Children.Add(new LogoIcon { Key = provider.LogoKey, Width = 14, Height = 14, Margin = new Thickness(1, 0, 8, 0) });
-            var name = new TextBlock { Text = provider.Name, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
-            name.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
-            identity.Children.Add(name);
-            Grid.SetColumn(identity, 0);
-            Grid.SetColumn(selector, 1);
-            Grid.SetColumn(targetSelector, 3);
-            row.Children.Add(identity);
-            row.Children.Add(selector);
-            row.Children.Add(targetSelector);
-            panel.Children.Add(row);
-            if (index < providers.Count - 1)
-            {
-                panel.Children.Add(PreferenceDivider());
-            }
+            _tabButtons[i] = button;
+            tabs.Children.Add(button);
         }
 
-        return Scroll(panel);
+        var tabTrack = new Border { CornerRadius = new CornerRadius(7), Padding = new Thickness(2), Margin = new Thickness(0, 0, 0, 14), Child = tabs };
+        tabTrack.SetResourceReference(Border.BackgroundProperty, "RowBg");
+
+        var footer = new DockPanel { Margin = new Thickness(4, 14, 4, 0) };
+        var version = Footnote($"Track {Version}");
+        version.Margin = new Thickness(0);
+        DockPanel.SetDock(version, Dock.Right);
+        footer.Children.Add(version);
+        var applies = Footnote("Changes apply right away.");
+        applies.Margin = new Thickness(0);
+        footer.Children.Add(applies);
+
+        var root = new DockPanel();
+        DockPanel.SetDock(tabTrack, Dock.Top);
+        DockPanel.SetDock(footer, Dock.Bottom);
+        root.Children.Add(tabTrack);
+        root.Children.Add(footer);
+        root.Children.Add(new ScrollViewer
+        {
+            Content = _page,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            MaxHeight = Math.Max(300, SystemParameters.WorkArea.Height - 220),
+            Focusable = false,
+        });
+        return root;
     }
 
-    private UIElement BehaviorTab()
+    private void ShowTab(SettingsTab tab)
     {
-        var settings = _viewModel.Settings.Behavior;
-        var panel = TabPanel();
-        panel.Children.Add(SectionHeading("Behavior", "Notifications, shortcut and usage limits."));
-
-        var notificationGroup = PreferenceGroup("Notifications");
-        var notifications = new CheckBox { Content = "Notifications", IsChecked = settings.NotificationsEnabled, Margin = new Thickness(0, 0, 0, 4), ToolTip = "Show agent-event and budget-alert notifications." };
-        notifications.Checked += (_, _) => _viewModel.SetNotificationsEnabled(true);
-        notifications.Unchecked += (_, _) => _viewModel.SetNotificationsEnabled(false);
-        notificationGroup.Children.Add(notifications);
-        notificationGroup.Children.Add(MutedText("Controls both agent-event and budget-alert notifications."));
-        panel.Children.Add(notificationGroup);
-        panel.Children.Add(PreferenceDivider());
-
-        var gesture = new TextBox { Text = settings.HotkeyGesture, Width = 180, MaxLength = 64 };
-        var hotkeyError = ErrorText();
-        var hotkey = new CheckBox { Content = "Enable global shortcut", IsChecked = settings.HotkeyEnabled, Margin = new Thickness(0, 0, 0, 4) };
-        void SaveHotkey(bool enabled)
+        _viewModel.SelectedTab = tab;
+        _tabButtons[(int)tab].IsChecked = true;
+        _page.Content = tab switch
         {
+            SettingsTab.General => GeneralTab(),
+            SettingsTab.Providers => ProvidersTab(),
+            _ => AlertsTab(),
+        };
+    }
+
+    // ----- General -----
+
+    private UIElement GeneralTab()
+    {
+        var settings = _viewModel.Settings;
+        var page = new StackPanel();
+
+        page.Children.Add(Section("Appearance",
+            Group(Row("Theme", null, Segments(
+                [(TrackTheme.System, "System"), (TrackTheme.Light, "Light"), (TrackTheme.Dark, "Dark")],
+                settings.Appearance.Theme, _viewModel.SetTheme, 190, "Theme"))),
+            "Track's windows use the system blue and the acrylic backdrop, like the popover and the island."));
+
+        page.Children.Add(Section("General", Group(
+            Row("Start with Windows", null, Switch(settings.StartWithWindows, _viewModel.SetStartWithWindows, "Start with Windows")),
+            Row("Notifications", "When an agent finishes or a budget is reached",
+                Switch(settings.Behavior.NotificationsEnabled, _viewModel.SetNotificationsEnabled, "Notifications")))));
+
+        var behavior = settings.Behavior;
+        var shortcut = new StackPanel { Orientation = Orientation.Horizontal };
+        var field = new Button { Style = Res<Style>("ShortcutField"), Content = KeyChips(behavior.HotkeyGesture), IsEnabled = behavior.HotkeyEnabled };
+        AutomationProperties.SetName(field, $"Shortcut {behavior.HotkeyGesture}. Press to record a new one");
+        var record = new Button { Content = "Record", Style = Res<Style>("LinkButton"), Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, IsEnabled = behavior.HotkeyEnabled };
+        var note = Footnote(_hotkeyStatus.Length > 0
+            ? _hotkeyStatus
+            : "Press Record, then the keys (with Ctrl, Alt or Win). Esc cancels.");
+        if (_hotkeyStatus.Length > 0)
+        {
+            note.SetResourceReference(TextBlock.ForegroundProperty, "WarningText");
+        }
+
+        void StartRecording()
+        {
+            field.Content = Footnote("Press the keys…");
+            ((TextBlock)field.Content).Margin = new Thickness(2, 0, 6, 0);
+            field.Focus();
+            Keyboard.Focus(field);
+        }
+
+        field.Click += (_, _) => StartRecording();
+        record.Click += (_, _) => StartRecording();
+        field.PreviewKeyDown += (_, e) =>
+        {
+            if (field.Content is not TextBlock)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (key == Key.Escape)
+            {
+                field.Content = KeyChips(_viewModel.Settings.Behavior.HotkeyGesture);
+                return;
+            }
+
+            if (Gesture(key, Keyboard.Modifiers) is not { } gesture)
+            {
+                return; // only modifiers so far, or a key Track cannot register
+            }
+
             try
             {
-                _viewModel.SetHotkey(enabled, gesture.Text);
-                hotkeyError.Text = "";
+                _viewModel.SetHotkey(true, gesture);
+                field.Content = KeyChips(gesture);
+                note.Text = "Saved. If another app owns these keys, Track says so here.";
+                note.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
             }
             catch (ArgumentException error)
             {
-                hotkeyError.Text = error.Message;
+                note.Text = error.Message;
+                note.SetResourceReference(TextBlock.ForegroundProperty, "ErrorText");
             }
+        };
+        field.LostKeyboardFocus += (_, _) =>
+        {
+            if (field.Content is TextBlock)
+            {
+                field.Content = KeyChips(_viewModel.Settings.Behavior.HotkeyGesture);
+            }
+        };
+        shortcut.Children.Add(field);
+        shortcut.Children.Add(record);
+
+        var enabled = Switch(behavior.HotkeyEnabled, on =>
+        {
+            _viewModel.SetHotkey(on, _viewModel.Settings.Behavior.HotkeyGesture);
+            field.IsEnabled = record.IsEnabled = on;
+        }, "Use a keyboard shortcut to open the popover");
+        page.Children.Add(Section("Keyboard shortcut", Group(
+            Row("Open the popover", null, enabled),
+            Row("Shortcut", null, shortcut)), null, note));
+        return page;
+    }
+
+    private static string? Gesture(Key key, ModifierKeys modifiers)
+    {
+        var name = key switch
+        {
+            >= Key.A and <= Key.Z => key.ToString(),
+            >= Key.D0 and <= Key.D9 => ((int)(key - Key.D0)).ToString(),
+            >= Key.F1 and <= Key.F24 => key.ToString(),
+            Key.Space => "Space",
+            Key.Tab => "Tab",
+            Key.Home => "Home",
+            Key.End => "End",
+            Key.Insert => "Insert",
+            Key.Delete => "Delete",
+            Key.Up => "Up",
+            Key.Down => "Down",
+            Key.Left => "Left",
+            Key.Right => "Right",
+            Key.PageUp => "PageUp",
+            Key.PageDown => "PageDown",
+            _ => null,
+        };
+        if (name is null)
+        {
+            return null;
         }
 
-        hotkey.Checked += (_, _) => SaveHotkey(true);
-        hotkey.Unchecked += (_, _) => SaveHotkey(false);
-        var hotkeyGroup = PreferenceGroup("Keyboard shortcut");
-        hotkeyGroup.Children.Add(hotkey);
-        gesture.LostFocus += (_, _) => SaveHotkey(hotkey.IsChecked == true);
-        hotkeyGroup.Children.Add(FormRow("Shortcut", gesture));
-        hotkeyGroup.Children.Add(hotkeyError);
-        _hotkeyStatus = ErrorText();
-        _hotkeyStatus.SetResourceReference(TextBlock.ForegroundProperty, "WarningText");
-        hotkeyGroup.Children.Add(_hotkeyStatus);
-        panel.Children.Add(hotkeyGroup);
-        panel.Children.Add(PreferenceDivider());
+        var parts = new List<string>();
+        if (modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
+        if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
+        if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
+        if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
+        parts.Add(name);
+        var gesture = string.Join("+", parts);
+        return HotkeyGestureParser.TryParse(gesture, out _) ? gesture : null;
+    }
 
-        var budget = settings.Budget;
-        var enabled = new CheckBox { Content = "Budget alerts", IsChecked = budget.Enabled, Margin = new Thickness(0, 0, 0, 4) };
-        enabled.Checked += (_, _) => _viewModel.SetBudgetEnabled(true);
-        enabled.Unchecked += (_, _) => _viewModel.SetBudgetEnabled(false);
-        var budgetGroup = PreferenceGroup("Spend and token budgets");
-        budgetGroup.Children.Add(enabled);
-        budgetGroup.Children.Add(FormRow("Period", Combo(Enum.GetValues<BudgetPeriod>(), budget.Period, value => _viewModel.SetBudgetPeriod(value))));
-        var budgetNote = new TextBlock
+    private static UIElement KeyChips(string gesture)
+    {
+        var chips = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var part in gesture.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            Text = "Blank limits are off. Spend alerts use known model prices; unpriced usage can make the total a lower bound.",
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 4, 0, 8),
-            FontSize = 11,
-        };
-        budgetNote.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-        budgetGroup.Children.Add(budgetNote);
-        budgetGroup.Children.Add(BudgetHeader());
-        budgetGroup.Children.Add(BudgetEditor("Total", null, budget.For(null)));
+            chips.Children.Add(new Border
+            {
+                Style = Res<Style>("KeyChip"),
+                Child = new TextBlock { Text = part, FontSize = 11, FontWeight = FontWeights.Medium },
+            });
+        }
+
+        return chips;
+    }
+
+    // ----- Providers -----
+
+    private UIElement ProvidersTab()
+    {
+        var settings = _viewModel.Settings;
+        var rows = new List<UIElement>();
         foreach (var provider in ProviderCatalog.All)
         {
-            budgetGroup.Children.Add(BudgetEditor(provider.Name, provider.Id, budget.For(provider.Id)));
+            rows.Add(ProviderRow(provider, settings));
         }
 
-        panel.Children.Add(budgetGroup);
-        return Scroll(panel);
+        var reset = new Button { Content = "Reset colors", Style = Res<Style>("LinkButton"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(12, 6, 4, 0) };
+        reset.Click += (_, _) =>
+        {
+            _viewModel.ResetProviderColors();
+            ShowTab(SettingsTab.Providers);
+        };
+        var note = Footnote("Auto shows a provider while it runs or once it has usage in the last 90 days. Off also stops reading its logs.");
+        var foot = new DockPanel();
+        DockPanel.SetDock(reset, Dock.Right);
+        foot.Children.Add(reset);
+        foot.Children.Add(note);
+
+        var caption = new DockPanel();
+        var modes = Caption("Auto · On · Off");
+        modes.FontWeight = FontWeights.Normal;
+        DockPanel.SetDock(modes, Dock.Right);
+        caption.Children.Add(modes);
+        caption.Children.Add(Caption("Show in tray, popover and island"));
+
+        var page = new StackPanel();
+        page.Children.Add(caption);
+        page.Children.Add(Group([.. rows]));
+        page.Children.Add(foot);
+        return page;
     }
 
-    private UIElement BudgetEditor(string label, Tool? tool, BudgetThreshold threshold)
+    private UIElement ProviderRow(ProviderInfo provider, TrackSettings settings)
     {
-        var spend = new TextBox
+        var mode = settings.Providers.ModeFor(provider.Id);
+        var (live, lastUsed) = _providerState(provider.Id);
+        var expanded = _expanded.Contains(provider.Id);
+
+        var name = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        name.Children.Add(new TextBlock { Text = provider.Name, FontWeight = FontWeights.Medium });
+        var status = Footnote(SettingsText.ProviderStatus(provider, mode, live, lastUsed, DateTimeOffset.UtcNow));
+        status.Margin = new Thickness(0, 1, 0, 0);
+        name.Children.Add(status);
+
+        var chevron = new Button
         {
-            Text = threshold.Spend?.ToString("0.##", CultureInfo.CurrentCulture) ?? "",
-            MinWidth = 72,
-            MinHeight = 26,
-            Padding = new Thickness(7, 2, 7, 2),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            ToolTip = "Spend limit",
+            Style = Res<Style>("HeaderIconButton"),
+            Width = 22,
+            Height = 22,
+            Margin = new Thickness(8, 0, 0, 0),
+            Content = new System.Windows.Shapes.Path
+            {
+                Data = Geometry.Parse("M 3.5 1.5 L 7 5 L 3.5 8.5"),
+                Stroke = Res<Brush>("Muted"),
+                StrokeThickness = 1.3,
+                Width = 10,
+                Height = 10,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(expanded ? 90 : 0),
+            },
+            ToolTip = expanded ? "Hide colors and chat app" : "Colors and chat app",
         };
-        var tokens = new TextBox
+        ((System.Windows.Shapes.Path)chevron.Content).SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Muted");
+        AutomationProperties.SetName(chevron, $"{provider.Name} details");
+        chevron.Click += (_, _) =>
         {
-            Text = threshold.Tokens?.ToString(CultureInfo.CurrentCulture) ?? "",
-            MinWidth = 72,
-            MinHeight = 26,
-            Padding = new Thickness(7, 2, 7, 2),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            ToolTip = "Token limit",
+            if (!_expanded.Remove(provider.Id))
+            {
+                _expanded.Add(provider.Id);
+            }
+
+            ShowTab(SettingsTab.Providers);
         };
-        var error = ErrorText();
+
+        var line = new DockPanel { MinHeight = 44 };
+        var logo = new LogoIcon { Key = provider.LogoKey, Active = true, Width = 14, Height = 14, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+        DockPanel.SetDock(logo, Dock.Left);
+        DockPanel.SetDock(chevron, Dock.Right);
+        var segments = Segments(
+            [(ProviderMode.Auto, "Auto"), (ProviderMode.On, "On"), (ProviderMode.Off, "Off")],
+            mode,
+            value =>
+            {
+                _viewModel.SetProviderMode(provider.Id, value);
+                status.Text = SettingsText.ProviderStatus(provider, value, live, lastUsed, DateTimeOffset.UtcNow);
+            },
+            132,
+            $"{provider.Name} display");
+        segments.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(segments, Dock.Right);
+        line.Children.Add(logo);
+        line.Children.Add(chevron);
+        line.Children.Add(segments);
+        line.Children.Add(name);
+
+        var block = new StackPanel();
+        block.Children.Add(line);
+        if (expanded)
+        {
+            block.Children.Add(ProviderDetails(provider, settings));
+        }
+
+        return block;
+    }
+
+    private UIElement ProviderDetails(ProviderInfo provider, TrackSettings settings)
+    {
+        var colors = ColorsFor(provider);
+        var wells = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        wells.Children.Add(WellLabel("Light"));
+        wells.Children.Add(Well(provider, "Light", colors.Light, provider.Colors.Light, value => _viewModel.SetProviderColors(provider.Id, value, ColorsFor(provider).Dark)));
+        wells.Children.Add(WellLabel("Dark"));
+        wells.Children.Add(Well(provider, "Dark", colors.Dark, provider.Colors.Dark, value => _viewModel.SetProviderColors(provider.Id, ColorsFor(provider).Light, value)));
+
+        var targets = ChatTargetResolver.OptionsFor(provider.Id);
+        var selected = settings.Providers.ChatTargetFor(provider.Id) ?? "";
+        var chat = new ComboBox
+        {
+            ItemsSource = targets.Select(t => t.Id.Length == 0 ? "Automatic" : t.Label).ToArray(),
+            SelectedIndex = Math.Max(0, targets.ToList().FindIndex(t => t.Id == selected)),
+            MinWidth = 150,
+            FontSize = 11.5,
+        };
+        AutomationProperties.SetName(chat, $"Open {provider.Name} chat with");
+        chat.SelectionChanged += (_, _) =>
+        {
+            if (chat.SelectedIndex >= 0)
+            {
+                _viewModel.SetChatTarget(provider.Id, targets[chat.SelectedIndex].Id);
+            }
+        };
+
+        var inner = new StackPanel();
+        inner.Children.Add(InnerRow("Color", wells));
+        inner.Children.Add(InnerRow("Open chat with", chat));
+        var box = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(24, 0, 0, 10), Child = inner };
+        box.SetResourceReference(Border.BackgroundProperty, "RowBg");
+        return box;
+    }
+
+    private Button Well(ProviderInfo provider, string theme, string hex, string defaultHex, Action<string> apply)
+    {
+        var well = new Button { Style = Res<Style>("ColorWell"), Background = ColorPopover.Brush(hex), Margin = new Thickness(0, 0, 12, 0), ToolTip = hex };
+        AutomationProperties.SetName(well, $"{provider.Name} {theme.ToLowerInvariant()} theme color {hex}");
+        well.Click += (_, _) =>
+        {
+            _colorPopover?.SetCurrentValue(Popup.IsOpenProperty, false);
+            _colorPopover = new ColorPopover(well, $"{provider.Name} · {theme}", hex, defaultHex, value =>
+            {
+                apply(value);
+                well.Background = ColorPopover.Brush(value);
+                well.ToolTip = value;
+            });
+            _colorPopover.IsOpen = true;
+        };
+        return well;
+    }
+
+    private ProviderColorOverride ColorsFor(ProviderInfo provider) =>
+        _viewModel.Settings.Appearance.ProviderColors.TryGetValue(provider.Id, out var custom)
+            ? custom
+            : new ProviderColorOverride(provider.Colors.Light, provider.Colors.Dark);
+
+    // ----- Alerts -----
+
+    private UIElement AlertsTab()
+    {
+        var settings = _viewModel.Settings;
+        var budget = settings.Behavior.Budget;
+        var page = new StackPanel();
+
+        page.Children.Add(Section(null, Group(
+            Row("Budget alerts", "One notification per limit, once per period", Switch(budget.Enabled, _viewModel.SetBudgetEnabled, "Budget alerts")),
+            Row("Period", null, Segments(
+                [(BudgetPeriod.Day, "Day"), (BudgetPeriod.Month, "Month")],
+                budget.Period,
+                value =>
+                {
+                    _viewModel.SetBudgetPeriod(value);
+                    ShowTab(SettingsTab.Alerts);
+                },
+                132,
+                "Period")))));
+
+        var header = LimitGrid();
+        AddCell(header, Caption(budget.Period == BudgetPeriod.Day ? "Limits today" : "Limits this month"), 0);
+        var spendCaption = Caption("Spend");
+        spendCaption.HorizontalAlignment = HorizontalAlignment.Right;
+        AddCell(header, spendCaption, 1);
+        var tokensCaption = Caption("Tokens");
+        tokensCaption.HorizontalAlignment = HorizontalAlignment.Right;
+        AddCell(header, tokensCaption, 2);
+        header.Margin = new Thickness(0, 0, 12, 0);
+        page.Children.Add(header);
+
+        var rows = new List<UIElement> { LimitRow(null, "All providers", null, budget.For(null)) };
+        foreach (var provider in ProviderCatalog.All.Where(p => p.Capabilities.HasTokens && ShowsLimit(p, settings)))
+        {
+            rows.Add(LimitRow(provider.Id, provider.Name, provider.LogoKey, budget.For(provider.Id)));
+        }
+
+        page.Children.Add(Group([.. rows]));
+        page.Children.Add(Footnote("Tokens accept 120k or 1.5M; leave a field empty for no limit. Spend uses known model prices, so unpriced usage is not counted. Providers turned Off are not listed."));
+
+        if (!settings.Behavior.NotificationsEnabled)
+        {
+            var turnOn = new Button { Content = "Turn on", Style = Res<Style>("LinkButton"), VerticalAlignment = VerticalAlignment.Center };
+            turnOn.Click += (_, _) =>
+            {
+                _viewModel.SetNotificationsEnabled(true);
+                ShowTab(SettingsTab.Alerts);
+            };
+            var strip = new DockPanel();
+            DockPanel.SetDock(turnOn, Dock.Right);
+            strip.Children.Add(turnOn);
+            strip.Children.Add(new TextBlock { Text = "Notifications are off in General, so alerts are not shown.", FontSize = 11, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center });
+            var warning = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 12, 0, 0), Child = strip };
+            warning.SetResourceReference(Border.BackgroundProperty, "WarnSoft");
+            page.Children.Add(warning);
+        }
+
+        return page;
+    }
+
+    private bool ShowsLimit(ProviderInfo provider, TrackSettings settings)
+    {
+        var mode = settings.Providers.ModeFor(provider.Id);
+        if (mode == ProviderMode.Off)
+        {
+            return false;
+        }
+
+        var (live, lastUsed) = _providerState(provider.Id);
+        return mode == ProviderMode.On
+            || lastUsed is not null
+            || live is { Working: true }
+            || settings.Behavior.Budget.Providers.ContainsKey(provider.Id);
+    }
+
+    private UIElement LimitRow(Tool? tool, string name, string? logoKey, BudgetThreshold threshold)
+    {
+        var grid = LimitGrid();
+        grid.MinHeight = 40;
+        var label = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        if (logoKey is not null)
+        {
+            label.Children.Add(new LogoIcon { Key = logoKey, Active = true, Width = 12, Height = 12, Margin = new Thickness(0, 0, 8, 0) });
+        }
+
+        label.Children.Add(new TextBlock { Text = name, FontWeight = tool is null ? FontWeights.SemiBold : FontWeights.Normal, VerticalAlignment = VerticalAlignment.Center });
+        AddCell(grid, label, 0);
+
+        var spend = LimitField(SettingsText.FormatSpend(threshold.Spend), $"{name} spend limit in dollars", "$");
+        var tokens = LimitField(SettingsText.FormatTokens(threshold.Tokens), $"{name} token limit", null);
+        AddCell(grid, spend.Shell, 1);
+        AddCell(grid, tokens.Shell, 2);
+
+        var saved = (Spend: spend.Box.Text, Tokens: tokens.Box.Text);
         void Save()
         {
-            decimal? spendLimit = null;
-            long? tokenLimit = null;
-            if (spend.Text.Length > 0)
+            if ((spend.Box.Text, tokens.Box.Text) == saved)
             {
-                if (!decimal.TryParse(spend.Text, NumberStyles.Number, CultureInfo.CurrentCulture, out var value))
-                {
-                    error.Text = "Enter a positive spend amount or leave it blank.";
-                    return;
-                }
-
-                spendLimit = value;
+                return; // unchanged: "123.5k" shown for 123456 must not overwrite it
             }
 
-            if (tokens.Text.Length > 0)
-            {
-                if (!long.TryParse(tokens.Text, NumberStyles.Number, CultureInfo.CurrentCulture, out var value))
-                {
-                    error.Text = "Enter a positive token count or leave it blank.";
-                    return;
-                }
-
-                tokenLimit = value;
-            }
-
-            try
+            var spendOk = SettingsText.TryParseSpend(spend.Box.Text, out var spendLimit);
+            var tokensOk = SettingsText.TryParseTokens(tokens.Box.Text, out var tokenLimit);
+            Mark(spend.Shell, spendOk, "Enter dollars, for example 75 or 7.50, or leave it empty.");
+            Mark(tokens.Shell, tokensOk, "Enter tokens, for example 120k or 1.5M, or leave it empty.");
+            if (spendOk && tokensOk)
             {
                 _viewModel.SetBudgetThreshold(tool, new BudgetThreshold(spendLimit, tokenLimit));
-                error.Text = "";
-            }
-            catch (ArgumentOutOfRangeException exception)
-            {
-                error.Text = exception.Message;
+                saved = (spend.Box.Text, tokens.Box.Text);
             }
         }
 
-        spend.LostFocus += (_, _) => Save();
-        tokens.LostFocus += (_, _) => Save();
-        var row = BudgetGridRow();
-        var name = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 12, 0) };
-        name.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
-        Grid.SetColumn(name, 0);
-        Grid.SetColumn(spend, 1);
-        Grid.SetColumn(tokens, 3);
-        row.Children.Add(name);
-        row.Children.Add(spend);
-        row.Children.Add(tokens);
+        foreach (var box in new[] { spend.Box, tokens.Box })
+        {
+            box.LostFocus += (_, _) => Save();
+            box.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    Save();
+                }
+            };
+        }
 
-        var content = new StackPanel();
-        content.Children.Add(row);
-        content.Children.Add(error);
-        return content;
-    }
-
-    private static UIElement BudgetHeader()
-    {
-        var header = BudgetGridRow();
-        AddGridText(header, "Provider", 0, muted: true);
-        AddGridText(header, "Spend", 1, muted: true);
-        AddGridText(header, "Tokens", 3, muted: true);
-        return header;
-    }
-
-    private static Grid BudgetGridRow()
-    {
-        var row = new Grid { Margin = new Thickness(0, 1, 0, 1), MinHeight = 26 };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        return row;
-    }
-
-    private static StackPanel PreferenceGroup(string title)
-    {
-        var group = new StackPanel { Margin = new Thickness(2, 0, 2, 4) };
-        group.Children.Add(GroupHeading(title));
-        return group;
-    }
-
-    private static Border PreferenceDivider()
-    {
-        var divider = new Border { Height = 1, Margin = new Thickness(2, 2, 2, 10) };
-        divider.SetResourceReference(Border.BackgroundProperty, "Line");
-        return divider;
-    }
-
-    private void OnSettingsChanged(object? sender, TrackSettings settings) => SettingsChanged?.Invoke(this, settings);
-
-    private static StackPanel TabPanel() => new() { Margin = new Thickness(2, 0, 2, 0), Orientation = Orientation.Vertical };
-
-    private static ScrollViewer Scroll(UIElement content) => new()
-    {
-        Content = content,
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        MaxHeight = Math.Max(220, SystemParameters.WorkArea.Height - 250),
-    };
-
-    private static UIElement SectionHeading(string title, string description)
-    {
-        var panel = new StackPanel { Margin = new Thickness(2, 0, 2, 8) };
-        var heading = new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold };
-        heading.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
-        var note = new TextBlock { Text = description, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
-        note.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-        panel.Children.Add(heading);
-        panel.Children.Add(note);
-        return panel;
-    }
-
-    private static TextBlock GroupHeading(string text)
-    {
-        var heading = new TextBlock { Text = text, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 4) };
-        heading.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
-        return heading;
-    }
-
-    private static Grid FormRow(string label, UIElement control)
-    {
-        var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(135) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var text = new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center };
-        text.SetResourceReference(TextBlock.ForegroundProperty, "Fg");
-        Grid.SetColumn(control, 1);
-        grid.Children.Add(text);
-        grid.Children.Add(control);
         return grid;
     }
 
-    private static void AddGridText(Grid grid, string text, int column, bool muted = false)
+    private static (Border Shell, TextBox Box) LimitField(string text, string name, string? prefix)
     {
-        var label = new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center, FontSize = 11, FontWeight = FontWeights.SemiBold };
-        label.SetResourceReference(TextBlock.ForegroundProperty, muted ? "Muted" : "Fg");
-        Grid.SetColumn(label, column);
-        grid.Children.Add(label);
+        var box = new TextBox
+        {
+            Text = text,
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0),
+            TextAlignment = TextAlignment.Right,
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        box.Template = PlainTextBox();
+        AutomationProperties.SetName(box, name);
+        var hint = new TextBlock { Text = "No limit", FontSize = 11.5, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Visibility = text.Length == 0 ? Visibility.Visible : Visibility.Collapsed };
+        hint.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        box.TextChanged += (_, _) => hint.Visibility = box.Text.Length == 0 && !box.IsKeyboardFocused ? Visibility.Visible : Visibility.Collapsed;
+        box.GotKeyboardFocus += (_, _) => hint.Visibility = Visibility.Collapsed;
+        box.LostKeyboardFocus += (_, _) => hint.Visibility = box.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var layered = new Grid();
+        layered.Children.Add(hint);
+        layered.Children.Add(box);
+
+        var content = new DockPanel();
+        if (prefix is not null)
+        {
+            var sign = new TextBlock { Text = prefix, Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center };
+            sign.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+            DockPanel.SetDock(sign, Dock.Left);
+            content.Children.Add(sign);
+        }
+
+        content.Children.Add(layered);
+        var shell = new Border { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 3, 8, 3), Child = content, VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.IBeam };
+        shell.SetResourceReference(Border.BackgroundProperty, "Field");
+        shell.SetResourceReference(Border.BorderBrushProperty, "FieldBorder");
+        shell.MouseLeftButtonDown += (_, _) => box.Focus();
+        box.GotKeyboardFocus += (_, _) => shell.SetResourceReference(Border.BorderBrushProperty, "Accent");
+        box.LostKeyboardFocus += (_, _) =>
+        {
+            if (shell.Tag is not "error")
+            {
+                shell.SetResourceReference(Border.BorderBrushProperty, "FieldBorder");
+            }
+        };
+        return (shell, box);
     }
 
-    private static TextBlock MutedText(string text)
+    private static ControlTemplate PlainTextBox()
     {
-        var label = new TextBlock { Text = text, Margin = new Thickness(5, 5, 12, 0), FontSize = 11 };
-        label.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-        return label;
+        var host = new FrameworkElementFactory(typeof(ScrollViewer)) { Name = "PART_ContentHost" };
+        return new ControlTemplate(typeof(TextBox)) { VisualTree = host };
     }
 
-    private static Grid ProviderRowGrid()
+    private static void Mark(Border shell, bool ok, string message)
     {
-        var row = new Grid { Margin = new Thickness(2, 2, 2, 2), MinHeight = 30 };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.35, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.85, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.7, GridUnitType.Star) });
+        shell.Tag = ok ? null : "error";
+        shell.ToolTip = ok ? null : message;
+        shell.SetResourceReference(Border.BorderBrushProperty, ok ? "FieldBorder" : "ErrorText");
+    }
+
+    private static Grid LimitGrid()
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(104) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(104) });
+        return grid;
+    }
+
+    private static void AddCell(Grid grid, UIElement element, int column)
+    {
+        Grid.SetColumn(element, column);
+        if (column > 0 && element is FrameworkElement framework)
+        {
+            framework.Margin = new Thickness(8, framework.Margin.Top, 0, framework.Margin.Bottom);
+        }
+
+        grid.Children.Add(element);
+    }
+
+    // ----- Shared pieces -----
+
+    private void OnSettingsChanged(object? sender, TrackSettings settings) => SettingsChanged?.Invoke(this, settings);
+
+    private static T Res<T>(string key) => (T)Application.Current.FindResource(key);
+
+    private static StackPanel Section(string? caption, UIElement group, string? footnote = null, TextBlock? note = null)
+    {
+        var section = new StackPanel { Margin = new Thickness(0, 0, 0, 16) };
+        if (caption is not null)
+        {
+            section.Children.Add(Caption(caption));
+        }
+
+        section.Children.Add(group);
+        if (footnote is not null)
+        {
+            section.Children.Add(Footnote(footnote));
+        }
+
+        if (note is not null)
+        {
+            section.Children.Add(note);
+        }
+
+        return section;
+    }
+
+    /// <summary>A grouped section: its rows separated by hairlines (none after the last).</summary>
+    private static Border Group(params UIElement[] rows)
+    {
+        var stack = new StackPanel();
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var cell = new Border { Child = rows[i], BorderThickness = new Thickness(0, 0, 0, i < rows.Length - 1 ? 1 : 0) };
+            cell.SetResourceReference(Border.BorderBrushProperty, "Line");
+            stack.Children.Add(cell);
+        }
+
+        return new Border { Style = Res<Style>("Group"), Child = stack };
+    }
+
+    private static UIElement Row(string label, string? subtitle, FrameworkElement control)
+    {
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = label });
+        if (subtitle is not null)
+        {
+            var sub = Footnote(subtitle);
+            sub.Margin = new Thickness(0, 1, 0, 0);
+            text.Children.Add(sub);
+        }
+
+        control.VerticalAlignment = VerticalAlignment.Center;
+        control.Margin = new Thickness(12, 0, 0, 0);
+        var row = new DockPanel { MinHeight = subtitle is null ? 40 : 48 };
+        DockPanel.SetDock(control, Dock.Right);
+        row.Children.Add(control);
+        row.Children.Add(text);
         return row;
     }
 
-    private static ComboBox Combo<T>(IEnumerable<T> values, T selected, Action<T> changed, double minWidth = 170)
+    private static UIElement InnerRow(string label, FrameworkElement control)
     {
-        var combo = new ComboBox { ItemsSource = values, SelectedItem = selected, MinWidth = minWidth, Padding = new Thickness(5, 3, 5, 3) };
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (combo.SelectedItem is T value)
-            {
-                changed(value);
-            }
-        };
-        return combo;
+        control.VerticalAlignment = VerticalAlignment.Center;
+        var row = new DockPanel { MinHeight = 34 };
+        DockPanel.SetDock(control, Dock.Right);
+        row.Children.Add(control);
+        row.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        return row;
     }
 
-    private static TextBlock ErrorText()
+    private static TextBlock WellLabel(string text)
     {
-        var text = new TextBlock { FontSize = 10.5, TextWrapping = TextWrapping.Wrap };
-        text.SetResourceReference(TextBlock.ForegroundProperty, "ErrorText");
-        return text;
+        var label = Footnote(text);
+        label.Margin = new Thickness(0, 0, 6, 0);
+        label.VerticalAlignment = VerticalAlignment.Center;
+        return label;
     }
+
+    private static ToggleButton Switch(bool on, Action<bool> changed, string name)
+    {
+        var toggle = new ToggleButton { Style = Res<Style>("Switch"), IsChecked = on };
+        AutomationProperties.SetName(toggle, name);
+        toggle.Checked += (_, _) => changed(true);
+        toggle.Unchecked += (_, _) => changed(false);
+        return toggle;
+    }
+
+    private static Border Segments<T>(IReadOnlyList<(T Value, string Label)> options, T selected, Action<T> changed, double width, string name)
+    {
+        var grid = new UniformGrid { Columns = options.Count };
+        var group = Guid.NewGuid().ToString("N");
+        foreach (var (value, label) in options)
+        {
+            var button = new RadioButton
+            {
+                Content = label,
+                GroupName = group,
+                Style = Res<Style>("SegmentSmall"),
+                IsChecked = EqualityComparer<T>.Default.Equals(value, selected),
+            };
+            button.Checked += (_, _) => changed(value);
+            grid.Children.Add(button);
+        }
+
+        var track = new Border { Style = Res<Style>("SegmentTrack"), Width = width, Child = grid };
+        AutomationProperties.SetName(track, name);
+        return track;
+    }
+
+    private static TextBlock Caption(string text) => new() { Text = text, Style = Res<Style>("Caption") };
+
+    private static TextBlock Footnote(string text) => new() { Text = text, Style = Res<Style>("Footnote") };
 
     private static void SaveElement(FrameworkElement element, string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         var scale = VisualTreeHelper.GetDpi(element).DpiScaleX;
-        var width = Math.Max(1, (int)Math.Ceiling(element.ActualWidth * scale));
-        var height = Math.Max(1, (int)Math.Ceiling(element.ActualHeight * scale));
-        var bitmap = new RenderTargetBitmap(width, height, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        var bitmap = new RenderTargetBitmap(
+            Math.Max(1, (int)Math.Ceiling(element.ActualWidth * scale)),
+            Math.Max(1, (int)Math.Ceiling(element.ActualHeight * scale)),
+            96 * scale,
+            96 * scale,
+            PixelFormats.Pbgra32);
         bitmap.Render(element);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));

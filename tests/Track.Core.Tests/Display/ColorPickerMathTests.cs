@@ -40,28 +40,18 @@ public class ColorPickerMathTests
     }
 
     [Theory]
-    [InlineData("#000000", "#FFFFFF")]
-    [InlineData("#FFFFFF", "#000000")]
-    [InlineData("#4B4CC4", "#FFFFFF")]
-    [InlineData("#0A66D8", "#FFFFFF")]
-    public void Contrast_text_chooses_a_wcag_readable_foreground(string background, string expected)
+    // The theme tokens (Themes/Light.xaml and Dark.xaml) on the window surface: body and muted text 4.5:1,
+    // accent links 4.5:1 (they are small text).
+    [InlineData("#1D1D1F", "#F6F6F8", 4.5)]
+    [InlineData("#6E6E73", "#F6F6F8", 4.5)]
+    [InlineData("#0A66D8", "#F6F6F8", 4.5)]
+    [InlineData("#F2F2F4", "#28282C", 4.5)]
+    [InlineData("#9A9AA1", "#28282C", 4.5)]
+    [InlineData("#4C9BFF", "#28282C", 4.5)]
+    public void Theme_text_colors_are_readable_on_the_window_surface(string foreground, string background, double minimum)
     {
-        var foreground = ColorPickerMath.ContrastTextHex(background);
-
-        Assert.Equal(expected, foreground);
-        Assert.True(ColorPickerMath.ContrastRatio(foreground, background) >= 4.5);
-    }
-
-    [Theory]
-    [InlineData("#4C9BFF", "#28282C", "#4C9BFF")]
-    [InlineData("#FDFE00", "#F6F6F8", "#000000")]
-    [InlineData("#303036", "#28282C", "#FFFFFF")]
-    public void Visible_accent_has_at_least_three_to_one_surface_contrast(string accent, string surface, string expected)
-    {
-        var visible = ColorPickerMath.VisibleAccentHex(accent, surface);
-
-        Assert.Equal(expected, visible);
-        Assert.True(ColorPickerMath.ContrastRatio(visible, surface) >= 3);
+        Assert.True(ColorPickerMath.ContrastRatio(foreground, background) >= minimum);
+        Assert.Equal(ColorPickerMath.ContrastRatio(foreground, background), ColorPickerMath.ContrastRatio(background, foreground));
     }
 
     [Theory]
