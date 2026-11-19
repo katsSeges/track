@@ -15,13 +15,16 @@ public sealed class LogScanner(
         MatchCasing = MatchCasing.CaseInsensitive,
     };
 
+    /// <summary>False for a provider turned Off: its logs are not listed.</summary>
+    public bool IsEnabled(Tool tool) => providerEnabled?.Invoke(tool) ?? true;
+
     /// <summary>Log files modified at or after <paramref name="modifiedSince"/>. Missing folders are skipped.</summary>
     public IReadOnlyList<LogFile> Scan(DateTimeOffset modifiedSince)
     {
         var found = new List<LogFile>();
         foreach (var source in sources)
         {
-            if (providerEnabled is not null && !providerEnabled(source.Tool))
+            if (!IsEnabled(source.Tool))
             {
                 continue;
             }

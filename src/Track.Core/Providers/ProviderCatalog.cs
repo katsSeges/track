@@ -77,12 +77,9 @@ public static class ProviderCatalog
 
     private static IReadOnlyList<LogSource> OpenCodeSources(string home)
     {
+        // OpenCode keeps its data in $XDG_DATA_HOME/opencode, else ~/.local/share/opencode, on Windows too
+        // (it never uses %APPDATA%).
         var dataRoot = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-        if (string.IsNullOrWhiteSpace(dataRoot))
-        {
-            dataRoot = Environment.GetEnvironmentVariable("APPDATA");
-        }
-
         if (string.IsNullOrWhiteSpace(dataRoot))
         {
             dataRoot = Path.Combine(home, ".local", "share");

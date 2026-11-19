@@ -49,6 +49,8 @@ public class AnalyticsBuilderTests
         Assert.Equal(53, result.TopSessions[1].Usage.Tokens.Total);
         Assert.Equal(TimeSpan.FromMinutes(105), result.TopSessions[1].ObservedSpan);
 
+        Assert.Equal("", AnalyticsCsv.Escape(null));
+        Assert.Equal("", AnalyticsCsv.Escape(""));
         var csv = AnalyticsCsv.Write(result);
         Assert.Contains("summary,", csv);
         Assert.Contains("daily_provider,2026-11-17,Claude Code", csv);
@@ -130,4 +132,19 @@ public class AnalyticsBuilderTests
         long output,
         string key) =>
         new(tool, session, model, at, input, cacheWrite, cacheRead, output, 0, key);
+
+    [Theory]
+    [InlineData("=HYPERLINK(\"x\")", "\"'=HYPERLINK(\"\"x\"\")\"")]
+    [InlineData("+cmd", "'+cmd")]
+    [InlineData("-rm", "'-rm")]
+    [InlineData("@SUM(A1)", "'@SUM(A1)")]
+    [InlineData("\tx", "'\tx")]
+    [InlineData("\rx", "\"'\rx\"")]
+    [InlineData("-12.5", "-12.5")]
+    [InlineData("+3", "+3")]
+    [InlineData("claude-opus-5-5", "claude-opus-5-5")]
+    public void Csv_cells_from_logs_cannot_run_as_spreadsheet_formulas(string value, string expected)
+    {
+        Assert.Equal(expected, AnalyticsCsv.Escape(value));
+    }
 }

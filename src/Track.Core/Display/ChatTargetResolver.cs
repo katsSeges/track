@@ -2,17 +2,31 @@ namespace Track.Core.Display;
 
 public sealed record ChatTargetOption(string Id, string Label);
 
+/// <summary>A desktop app (found only in its install folders) or a command-line tool (found on PATH, run in a terminal).</summary>
+public enum ChatTargetKind
+{
+    App,
+    CommandLine,
+}
+
+/// <param name="InstallFolders">For an app: folders under %LOCALAPPDATA% and Program Files that hold it.</param>
 public sealed record ChatTargetDefinition(
     string Id,
     string Label,
     string ExecutableName,
+    ChatTargetKind Kind,
+    IReadOnlyList<string> InstallFolders,
     IReadOnlyList<string> Arguments);
 
 public sealed record ChatLaunchSpec(
     string TargetId,
     string Label,
     string ExecutableName,
-    IReadOnlyList<string> Arguments);
+    IReadOnlyList<string> Arguments,
+    ChatTargetKind Kind = ChatTargetKind.App);
+
+/// <summary>The folders a target's executable is looked for in (from the environment, so it can be tested).</summary>
+public sealed record ChatSearchFolders(string? PathVariable, string LocalAppData, string ProgramFiles, string AppData);
 
 public sealed record ChatTargetResolution(ChatLaunchSpec? Target, string? Message)
 {
@@ -27,26 +41,58 @@ public static class ChatTargetResolver
         {
             [Tool.Claude] =
             [
-                Target("claude-desktop", "Claude desktop", "Claude.exe"),
-                Target("claude-cli", "Claude CLI", "claude.exe"),
+                App("claude-desktop", "Claude desktop", "Claude.exe", "AnthropicClaude", @"Programs\Claude"),
+                Cli("claude-cli", "Claude CLI", "claude.exe"),
             ],
             [Tool.Codex] =
             [
-                Target("codex-desktop", "Codex app", "Codex.exe"),
-                Target("codex-cli", "Codex CLI", "codex.exe"),
+                App("codex-desktop", "Codex app", "Codex.exe", @"Programs\Codex"),
+                Cli("codex-cli", "Codex CLI", "codex.exe"),
             ],
             [Tool.Copilot] =
             [
-                Target("copilot-app", "GitHub Copilot", "GitHub Copilot.exe"),
-                Target("vscode-chat", "VS Code chat", "Code.exe", "--command", "workbench.action.chat.open"),
-                Target("copilot-cli", "Copilot CLI", "copilot.exe"),
+                App("copilot-app", "GitHub Copilot", "GitHub Copilot.exe", @"Programs\GitHub Copilot"),
+                App("vscode-chat", "VS Code", "Code.exe", VsCode),
+                Cli("copilot-cli", "Copilot CLI", "copilot.exe"),
             ],
-            [Tool.Gemini] = [Target("gemini-cli", "Gemini CLI", "gemini.exe")],
-            [Tool.OpenCode] = [Target("opencode-cli", "OpenCode CLI", "opencode.exe")],
-            [Tool.Cline] = [Target("cline-vscode", "VS Code", "Code.exe", "--command", "workbench.action.chat.open")],
-            [Tool.Roo] = [Target("roo-vscode", "VS Code", "Code.exe", "--command", "workbench.action.chat.open")],
-            [Tool.Ollama] = [Target("ollama-cli", "Ollama", "ollama.exe", "run")],
+            [Tool.Gemini] = [Cli("gemini-cli", "Gemini CLI", "gemini.exe")],
+            [Tool.OpenCode] = [Cli("opencode-cli", "OpenCode CLI", "opencode.exe")],
+            [Tool.Cline] = [App("cline-vscode", "VS Code", "Code.exe", VsCode)],
+            [Tool.Roo] = [App("roo-vscode", "VS Code", "Code.exe", VsCode)],
+            [Tool.Ollama] = [Cli("ollama-cli", "Ollama", "ollama.exe", "run")],
         };
+
+    private const string VsCode = @"Programs\Microsoft VS Code|Microsoft VS Code";
+
+    /// <summary>
+    /// Where <paramref name="target"/>'s executable may be, in order. An app is looked for only in its install
+    /// folders: Windows file names ignore case, so on PATH the Claude and Codex apps would be the CLIs' claude.exe
+    /// and codex.exe. A command-line tool is looked for in fully qualified, local PATH folders, then npm's folder.
+    /// </summary>
+    public static IEnumerable<string> CandidatePaths(ChatTargetDefinition target, ChatSearchFolders folders)
+    {
+        if (target.Kind == ChatTargetKind.App)
+        {
+            foreach (var folder in target.InstallFolders)
+            {
+                yield return Path.Combine(folders.LocalAppData, folder, target.ExecutableName);
+                yield return Path.Combine(folders.ProgramFiles, folder, target.ExecutableName);
+            }
+
+            yield break;
+        }
+
+        foreach (var entry in (folders.PathVariable ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            // A relative entry depends on the current folder, and a network (\\server) folder is not this computer's.
+            if (Path.IsPathFullyQualified(entry) && !entry.StartsWith(@"\\", StringComparison.Ordinal))
+            {
+                yield return Path.Combine(entry, target.ExecutableName);
+            }
+        }
+
+        yield return Path.Combine(folders.AppData, "npm", target.ExecutableName);
+    }
 
     public static IReadOnlyList<ChatTargetDefinition> TargetsFor(Tool tool) =>
         Targets.TryGetValue(tool, out var targets)
@@ -90,9 +136,12 @@ public static class ChatTargetResolver
             arguments.Add(lastModel);
         }
 
-        return new ChatLaunchSpec(target.Id, target.Label, target.ExecutableName, arguments);
+        return new ChatLaunchSpec(target.Id, target.Label, target.ExecutableName, arguments, target.Kind);
     }
 
-    private static ChatTargetDefinition Target(string id, string label, string executable, params string[] arguments) =>
-        new(id, label, executable, arguments);
+    private static ChatTargetDefinition App(string id, string label, string executable, params string[] installFolders) =>
+        new(id, label, executable, ChatTargetKind.App, installFolders.SelectMany(f => f.Split('|')).ToList(), []);
+
+    private static ChatTargetDefinition Cli(string id, string label, string executable, params string[] arguments) =>
+        new(id, label, executable, ChatTargetKind.CommandLine, [], arguments);
 }

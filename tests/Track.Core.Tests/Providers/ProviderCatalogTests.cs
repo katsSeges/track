@@ -95,10 +95,11 @@ public class ProviderCatalogTests
             var xdgSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
             Assert.Equal((Path.Combine(@"C:\home\data", "opencode"), "opencode*.db*"), (xdgSource.Root, xdgSource.Pattern));
 
+            // OpenCode never uses %APPDATA%, on Windows too.
             Environment.SetEnvironmentVariable("XDG_DATA_HOME", null);
             Environment.SetEnvironmentVariable("APPDATA", @"C:\home\AppData\Roaming");
             var appDataSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
-            Assert.Equal((Path.Combine(@"C:\home\AppData\Roaming", "opencode"), "opencode*.db*"),
+            Assert.Equal((Path.Combine(@"C:\home", ".local", "share", "opencode"), "opencode*.db*"),
                 (appDataSource.Root, appDataSource.Pattern));
 
             Environment.SetEnvironmentVariable("XDG_DATA_HOME", @"C:\home\data");

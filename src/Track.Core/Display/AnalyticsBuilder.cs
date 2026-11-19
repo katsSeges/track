@@ -263,9 +263,22 @@ public static class AnalyticsCsv
     private static string? Number<T>(T? value) where T : struct, IFormattable =>
         value is { } number ? number.ToString(null, CultureInfo.InvariantCulture) : null;
 
-    private static string Escape(string? value) => value is null
-        ? ""
-        : value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r')
+    internal static string Escape(string? value)
+    {
+        if (value is null)
+        {
+            return "";
+        }
+
+        // Model and session names come from logs: one starting with = + - @ (or a tab/CR) would run as a formula
+        // when the file is opened in Excel. A leading ' keeps it text. Numbers are written by Track, never prefixed.
+        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r' && !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+        {
+            value = "'" + value;
+        }
+
+        return value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r')
             ? "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\""
             : value;
+    }
 }

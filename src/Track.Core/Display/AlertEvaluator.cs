@@ -15,6 +15,19 @@ public sealed record BudgetAlert(string Key, string Message, Tool? Tool, BudgetM
 /// <summary>Evaluates day or month budget thresholds without mutating persisted fired-state.</summary>
 public sealed class AlertEvaluator
 {
+    /// <summary>
+    /// The fired keys to save after <paramref name="alerts"/> fire: the new ones, plus earlier ones from this or the
+    /// previous month. Older keys can never match again (their period is over), so the file does not grow forever.
+    /// </summary>
+    public static IReadOnlySet<string> Fired(IReadOnlySet<string> firedKeys, IEnumerable<BudgetAlert> alerts, DateOnly periodStart)
+    {
+        var oldest = new DateOnly(periodStart.Year, periodStart.Month, 1).AddMonths(-1);
+        var kept = firedKeys.Where(key => key.Split('|') is [_, var date, ..]
+            && DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var start)
+            && start >= oldest);
+        return kept.Concat(alerts.Select(alert => alert.Key)).ToHashSet(StringComparer.Ordinal);
+    }
+
     public IReadOnlyList<BudgetAlert> Evaluate(
         BudgetSettings settings,
         DateOnly periodStart,
@@ -41,7 +54,8 @@ public sealed class AlertEvaluator
         {
             if (threshold.Spend is > 0 and { } spend && usage.KnownCost >= spend)
             {
-                Add(tool, BudgetMetric.Spend, spend, $"known spend reached {spend.ToString("C", CultureInfo.InvariantCulture)}");
+                // Prices are in US dollars ("C" with the invariant culture would print "¤").
+                Add(tool, BudgetMetric.Spend, spend, $"known spend reached ${spend.ToString("0.##", CultureInfo.InvariantCulture)}");
             }
 
             if (threshold.Tokens is > 0 and { } tokens && usage.Tokens.Total >= tokens)

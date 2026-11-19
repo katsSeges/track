@@ -13,7 +13,7 @@ public class DocumentLogReaderTests
     private static readonly DateTimeOffset Timestamp = new(2026, 11, 18, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Gemini_jsonl_materializes_checkpoints_removals_order_and_rewinds()
+    public void Gemini_counts_every_billed_response_once_with_thoughts_and_tool_prompts()
     {
         const string path = @"C:\home\.gemini\tmp\session-a.jsonl";
         var fs = new MockFileSystem();
@@ -21,21 +21,27 @@ public class DocumentLogReaderTests
             """{"$set":{"sessionId":"gemini-session","messages":[{"id":"old","type":"gemini","timestamp":"2026-11-18T10:00:00Z","model":"old-model","tokens":{"input":5,"cached":0,"output":0}}]}}""" + "\n"
             + GeminiMessage("first", "gemini-2.5", 100, 20, 30, 5) + "\n"
             + """{"$patch":{"removeIds":["old",42]}}""" + "\n"
+            + GeminiMessage("second", "gemini-2.5-pro", 1, 0, 1, 0) + "\n"
             + GeminiMessage("second", "gemini-2.5-pro", 50, 10, 15, 2) + "\n"
-            + """{"$patch":{"orderIds":["second","first"]}}""" + "\n"
+            + """{"id":"tool","type":"gemini","timestamp":"2026-11-18T12:00:00Z","model":"m","tokens":{"input":10,"cached":0,"output":1,"tool":7}}""" + "\n"
             + """{"$rewindTo":"first"}""" + "\n"
             + "not json\n"
             + """{"type":"user","id":"ignored"}""" + "\n"));
         var file = new LogFile(Tool.Gemini, path, "filename-session", Timestamp, LogReadMode.GeminiJsonLines);
 
-        var reader = new DocumentLogReader(fs);
-        var result = reader.ReadChanged(file, KeepFrom)!;
-        var record = Assert.Single(result.Records);
+        var records = new DocumentLogReader(fs).ReadChanged(file, KeepFrom)!.Records.ToDictionary(r => r.DedupeKey);
 
-        Assert.Equal("gemini-session", record.SessionId);
-        Assert.Equal("gemini-2.5-pro", record.Model);
-        Assert.Equal((40L, 0L, 10L, 15L, 2L), (record.Input, record.CacheWrite, record.CacheRead, record.Output, record.Reasoning));
-        Assert.Equal("second", record.DedupeKey);
+        // Removed and rewound responses were still sent and billed: all stay. A rewritten id counts once (last version).
+        Assert.Equal(["first", "old", "second", "tool"], records.Keys.Order());
+        Assert.All(records.Values, r => Assert.Equal("gemini-session", r.SessionId));
+        Assert.Equal("gemini-2.5-pro", records["second"].Model);
+        // input excludes cached; output adds thoughts (also reported as reasoning); tool prompt tokens are input.
+        Assert.Equal((80L, 0L, 20L, 35L, 5L), Parts(records["first"]));
+        Assert.Equal((40L, 0L, 10L, 17L, 2L), Parts(records["second"]));
+        Assert.Equal((17L, 0L, 0L, 1L, 0L), Parts(records["tool"]));
+        Assert.Equal((5L, 0L, 0L, 0L, 0L), Parts(records["old"]));
+
+        static (long, long, long, long, long) Parts(UsageRecord r) => (r.Input, r.CacheWrite, r.CacheRead, r.Output, r.Reasoning);
     }
 
     [Theory]
@@ -152,14 +158,14 @@ public class DocumentLogReaderTests
             + """{"$set":[]}""" + "\n"
             + """{"$rewindTo":"missing"}""" + "\n"
             + """{"sessionId":42}""" + "\n"
-            + """{"projectHash":"legacy","messages":[{"id":"missing-id","type":"gemini"},{"id":"bad-time","type":"gemini","timestamp":"not-a-time"},{"id":"missing-time","type":"gemini"},{"id":"no-tokens","type":"gemini","timestamp":"2026-11-18T12:00:00Z"},{"id":"zero","type":"gemini","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":0,"cached":0,"output":0}},{"id":"wrong-type","type":"user","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"missing-type","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"non-string-type","type":1,"timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"valid","type":"gemini","timestamp":"2026-11-18T12:00:00Z","model":"old","tokens":{"input":1}},{"id":"valid","type":"gemini","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":10,"cached":2,"output":4,"thoughts":5}}]}""" + "\n"));
+            + """{"projectHash":"legacy","messages":[{"id":"","type":"gemini","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"missing-id","type":"gemini"},{"id":"bad-time","type":"gemini","timestamp":"not-a-time"},{"id":"missing-time","type":"gemini"},{"id":"no-tokens","type":"gemini","timestamp":"2026-11-18T12:00:00Z"},{"id":"zero","type":"gemini","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":0,"cached":0,"output":0}},{"id":"wrong-type","type":"user","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"missing-type","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"non-string-type","type":1,"timestamp":"2026-11-18T12:00:00Z","tokens":{"input":1}},{"id":"valid","type":"gemini","timestamp":"2026-11-18T12:00:00Z","model":"old","tokens":{"input":1}},{"id":"valid","type":"gemini","timestamp":"2026-11-18T12:00:00Z","tokens":{"input":10,"cached":2,"output":4,"thoughts":5}}]}""" + "\n"));
         var reader = new DocumentLogReader(fs);
         var file = new LogFile(Tool.Gemini, path, "filename-session", Timestamp, LogReadMode.GeminiJsonLines);
 
         var record = Assert.Single(reader.ReadChanged(file, KeepFrom)!.Records);
 
         Assert.Equal(("gemini-session", "Unknown", "valid"), (record.SessionId, record.Model, record.DedupeKey));
-        Assert.Equal((8L, 2L, 4L, 4L), (record.Input, record.CacheRead, record.Output, record.Reasoning));
+        Assert.Equal((8L, 2L, 9L, 5L), (record.Input, record.CacheRead, record.Output, record.Reasoning));
     }
 
     [Theory]
@@ -222,6 +228,12 @@ public class DocumentLogReaderTests
                     INSERT INTO session_message VALUES ('zero-tokens', 'session-1', $timestamp, 'assistant', '{"model":{"id":"empty"},"tokens":{"input":0,"output":0}}');
                     INSERT INTO session_message VALUES ('without-provider', 'session-1', $timestamp, 'assistant', '{"model":{"id":"gpt-4"},"tokens":{"input":10}}');
                     INSERT INTO session_message VALUES ('invalid-token-values', 'session-1', $timestamp, 'assistant', '{"model":{"id":"empty-invalid"},"tokens":{"input":"bad","output":-1,"cache":{"read":1.5,"write":9223372036854775808}}}');
+                    INSERT INTO session_message VALUES (NULL, 'session-1', $timestamp, 'assistant', '{"model":{"id":"m"},"tokens":{"input":1}}');
+                    INSERT INTO session_message VALUES ('null-data', 'session-1', $timestamp, 'assistant', NULL);
+                    INSERT INTO session_message VALUES ('text-time', 'session-1', 'later', 'assistant', '{"model":{"id":"m"},"tokens":{"input":1}}');
+                    INSERT INTO session_message VALUES ('huge-time', 'session-1', 9223372036854775807, 'assistant', '{"model":{"id":"m"},"tokens":{"input":1}}');
+                    INSERT INTO session_message VALUES ('broken-json', 'session-1', $timestamp, 'assistant', '{"model":');
+                    INSERT INTO session_message VALUES ('array-data', 'session-1', $timestamp, 'assistant', '[1]');
                     """;
                 command.Parameters.AddWithValue("$timestamp", Timestamp.ToUnixTimeMilliseconds());
                 command.ExecuteNonQuery();
@@ -233,9 +245,12 @@ public class DocumentLogReaderTests
             var record = Assert.Single(records, r => r.DedupeKey == "message-1");
 
             Assert.Equal(("session-1", "openai/gpt-5.6"), (record.SessionId, record.Model));
-            Assert.Equal((100L, 10L, 20L, 30L, 5L), (record.Input, record.CacheWrite, record.CacheRead, record.Output, record.Reasoning));
+            // OpenCode's output excludes reasoning; both are billed as output.
+            Assert.Equal((100L, 10L, 20L, 35L, 5L), (record.Input, record.CacheWrite, record.CacheRead, record.Output, record.Reasoning));
             Assert.Equal("message-1", record.DedupeKey);
             Assert.Equal("gpt-4", Assert.Single(records, r => r.DedupeKey == "without-provider").Model);
+            // The odd rows are skipped; the good ones still count.
+            Assert.Equal(["message-1", "without-provider"], records.Select(r => r.DedupeKey).Order());
             Assert.Null(reader.ReadChanged(file, KeepFrom));
 
             var sidecarReader = new DocumentLogReader(new FileSystem());
@@ -253,7 +268,7 @@ public class DocumentLogReaderTests
     }
 
     [Fact]
-    public void Malformed_task_document_is_not_committed_as_a_contribution()
+    public void Malformed_task_document_contributes_nothing_and_is_not_parsed_again_until_it_changes()
     {
         const string path = @"C:\home\Cline\task\ui_messages.json";
         var fs = new MockFileSystem();
@@ -262,7 +277,63 @@ public class DocumentLogReaderTests
         var file = new LogFile(Tool.Cline, path, "task", Timestamp, LogReadMode.JsonDocument);
 
         Assert.Null(reader.ReadChanged(file, KeepFrom));
+        // Its version is remembered, so an unchanged broken document is not parsed every refresh.
+        Assert.Null(Assert.Single(reader.SaveCursors()).Contribution);
+        Assert.Null(reader.ReadChanged(file, KeepFrom));
+    }
+
+    [Fact]
+    public void A_document_that_breaks_is_read_again_once_it_changes()
+    {
+        const string path = @"C:\home\Cline\task\ui_messages.json";
+        var fs = new MockFileSystem();
+        var ts = Timestamp.ToUnixTimeMilliseconds();
+        var good = $$"""[{"ts":{{ts}},"type":"say","say":"api_req_started","text":"{\"tokensIn\":10,\"tokensOut\":5}"}]""";
+        fs.AddFile(path, new MockFileData(good));
+        var reader = new DocumentLogReader(fs);
+        var file = new LogFile(Tool.Cline, path, "task", Timestamp, LogReadMode.JsonDocument);
+        Assert.Single(reader.ReadChanged(file, KeepFrom)!.Records);
+
+        fs.File.WriteAllText(path, good[..^5]);
+        Assert.Null(reader.ReadChanged(file, KeepFrom));
+        Assert.Null(reader.ReadChanged(file, KeepFrom));
+
+        fs.File.WriteAllText(path, good + " ");
+        Assert.Single(reader.ReadChanged(file, KeepFrom)!.Records);
+    }
+
+    [Theory]
+    [InlineData(@"C:\home\.local\share\opencode\opencode-next.db")]
+    [InlineData(@"C:\home\.local\share\opencode\opencode-next.db-wal")]
+    [InlineData(@"C:\home\.local\share\opencode\opencode-backup.db")]
+    [InlineData(@"C:\home\.local\share\opencode\opencode copy.db")]
+    public void Copies_of_the_opencode_database_are_not_counted_again(string path)
+    {
+        var fs = new MockFileSystem();
+        fs.AddFile(path, new MockFileData("same data as opencode.db"));
+        var reader = new DocumentLogReader(fs);
+
+        Assert.Null(reader.ReadChanged(new LogFile(Tool.OpenCode, path, "opencode", Timestamp, LogReadMode.OpenCodeDatabase), KeepFrom));
         Assert.Empty(reader.SaveCursors());
+    }
+
+    [Fact]
+    public void A_database_that_cannot_be_opened_is_tried_again_next_time()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"track-opencode-{Guid.NewGuid():N}.db");
+        try
+        {
+            File.WriteAllText(path, "not a database, or one being rewritten right now");
+            var reader = new DocumentLogReader(new FileSystem());
+            var file = new LogFile(Tool.OpenCode, path, "opencode", Timestamp, LogReadMode.OpenCodeDatabase);
+
+            Assert.Null(reader.ReadChanged(file, KeepFrom));
+            Assert.Empty(reader.SaveCursors());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]

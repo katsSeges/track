@@ -43,6 +43,8 @@ public sealed class HotkeyGestureParserTests
     [InlineData("Ctrl+FNO")]
     [InlineData("Alt+F25")]
     [InlineData("Alt+F0")]
+    [InlineData("Shift+A")]
+    [InlineData("Shift+F5")]
     public void Rejects_unsupported_or_incomplete_gestures(string? value)
     {
         Assert.False(HotkeyGestureParser.TryParse(value, out _));

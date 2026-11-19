@@ -27,6 +27,9 @@ public sealed class IncrementalLogReader(IFileSystem fileSystem, int chunkSize =
     /// <summary>Files currently tracked.</summary>
     public IReadOnlyCollection<string> TrackedPaths => _cursors.Keys;
 
+    /// <summary>Tracked files with the tool each belongs to.</summary>
+    public IEnumerable<LogFile> TrackedFiles => _cursors.Values.Select(c => c.File);
+
     public IReadOnlyList<UsageRecord> ReadNew(LogFile file)
     {
         var records = new List<UsageRecord>();

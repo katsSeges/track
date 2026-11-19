@@ -11,6 +11,26 @@ public sealed class AlertEvaluatorTests
     private static readonly DateOnly Day = new(2026, 11, 20);
 
     [Fact]
+    public void Saved_fired_keys_keep_this_and_last_month_and_drop_older_or_unreadable_ones()
+    {
+        var fired = new HashSet<string>
+        {
+            "Month|2026-11-01|total|Spend|2",
+            "Day|2026-10-31|total|Tokens|100",
+            "Day|2026-09-30|total|Tokens|100",
+            "Month|not-a-date|total|Spend|2",
+            "garbage",
+        };
+        var alert = new BudgetAlert("Day|2026-11-20|Gemini|Spend|1", "m", Tool.Gemini, BudgetMetric.Spend);
+
+        var saved = AlertEvaluator.Fired(fired, [alert], Day);
+
+        Assert.Equal(
+            ["Day|2026-10-31|total|Tokens|100", "Day|2026-11-20|Gemini|Spend|1", "Month|2026-11-01|total|Spend|2"],
+            saved.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public void Disabled_budgets_do_not_evaluate_any_threshold()
     {
         var alerts = _evaluator.Evaluate(
@@ -42,7 +62,8 @@ public sealed class AlertEvaluatorTests
         var alerts = _evaluator.Evaluate(settings, Day, totals, new UsageTotals(new TokenCounts(60, 0, 0, 60, 0, 2), 3, 0), new HashSet<string>(), notificationsEnabled: true);
 
         Assert.Equal(4, alerts.Count);
-        Assert.Contains(alerts, alert => alert.Tool is null && alert.Metric == BudgetMetric.Spend && alert.Message.Contains("this month", StringComparison.Ordinal));
+        Assert.Contains(alerts, alert => alert.Tool is null && alert.Metric == BudgetMetric.Spend
+            && alert.Message == "Total known spend reached $2 this month.");
         Assert.Contains(alerts, alert => alert.Tool == Tool.Gemini && alert.Metric == BudgetMetric.Tokens);
         Assert.Empty(_evaluator.Evaluate(settings, Day, totals, new UsageTotals(new TokenCounts(60, 0, 0, 60, 0, 2), 3, 0), alerts.Select(alert => alert.Key).ToHashSet(), notificationsEnabled: true));
     }

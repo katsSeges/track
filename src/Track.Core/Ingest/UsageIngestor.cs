@@ -56,15 +56,18 @@ public sealed class UsageIngestor(
                     added += store.ReplaceDocumentContribution(changed.Path, changed.Records);
                 }
             }
-
-            documents.Prune(keepFrom);
         }
 
         var current = files
             .Where(file => file.Mode == LogReadMode.Lines)
             .Select(file => file.Path)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        reader.Forget(reader.TrackedPaths.Where(p => !current.Contains(p)).ToList());
+        // A provider turned Off keeps its cursors: its usage stays counted, so turning it back On must continue
+        // where reading stopped instead of reading (and adding) every file again.
+        reader.Forget(reader.TrackedFiles
+            .Where(f => scanner.IsEnabled(f.Tool) && !current.Contains(f.Path))
+            .Select(f => f.Path)
+            .ToList());
         store.Prune(keepFrom, now - SessionRetention);
 
         if ((added > 0 || documentChanged) && now - _lastSave >= SaveInterval)
@@ -87,7 +90,9 @@ public sealed class UsageIngestor(
         var (buckets, sessions) = store.Save();
         return snapshots.Save(new Snapshot(SnapshotStore.CurrentVersion, _lastSave, buckets, sessions, reader.SaveCursors())
         {
-            DocumentCursors = documents?.SaveCursors() ?? [],
+            DocumentCursors = documents?.SaveCursors()
+                .Select(c => c with { Contribution = store.DocumentContributions.GetValueOrDefault(c.Path) })
+                .ToList() ?? [],
         });
     }
 

@@ -176,6 +176,22 @@ public class AgentActivityTrackerTests
         Assert.Empty(reader.Refresh(now));
     }
 
+    [Fact]
+    public void Logs_without_work_markers_are_not_opened()
+    {
+        var now = new DateTimeOffset(2026, 11, 18, 12, 0, 0, TimeSpan.Zero);
+        var fs = Substitute.For<IFileSystem>();
+        var recent = new List<LogFile>
+        {
+            new(Tool.Cline, @"C:\home\cline\task\ui_messages.json", "task", now, LogReadMode.JsonDocument),
+            new(Tool.OpenCode, @"C:\home\opencode\opencode.db", "opencode", now, LogReadMode.OpenCodeDatabase),
+            new(Tool.Gemini, @"C:\home\.gemini\tmp\p\chats\s.jsonl", "s", now, LogReadMode.GeminiJsonLines),
+        };
+
+        Assert.Empty(new ActivityReader(fs, new LogScanner(fs, []), new AgentActivityTracker()).Refresh(now, recent));
+        fs.File.DidNotReceiveWithAnyArgs().Open(default!, default, default, default);
+    }
+
     [Theory]
     [InlineData(typeof(IOException))]
     [InlineData(typeof(UnauthorizedAccessException))]

@@ -43,6 +43,32 @@ public class UsageIngestorTests
     private long Total() => _ingestor.Store.Buckets.Values.Sum(v => v.Total);
 
     [Fact]
+    public void Turning_a_provider_off_and_on_again_counts_its_usage_once()
+    {
+        var claudeOn = true;
+        _ingestor = new UsageIngestor(
+            new LogScanner(_fs, LogSources.Default(Home), tool => tool != Tool.Claude || claudeOn),
+            _reader,
+            new UsageStore(),
+            _time,
+            documents: _documents);
+        _fs.AddFile(ClaudeLog, new MockFileData(Lines.Claude("m1") + "\n"));
+        _fs.AddFile(CopilotLog, new MockFileData(Lines.Copilot("e1") + "\n"));
+        _ingestor.Refresh();
+        var before = Total();
+
+        claudeOn = false;
+        _ingestor.Refresh();
+        _fs.File.AppendAllText(ClaudeLog, Lines.Claude("m2", 4) + "\n");
+        claudeOn = true;
+        _ingestor.Refresh();
+
+        // Only the line written while Claude was Off is new; m1 is not read and added a second time.
+        Assert.Equal(before + 4, Total());
+        Assert.Contains(ClaudeLog, _reader.TrackedPaths);
+    }
+
+    [Fact]
     public void Refresh_collects_new_usage_from_every_tool_once()
     {
         _fs.AddFile(ClaudeLog, new MockFileData(Lines.Claude("m1") + "\n" + Lines.Claude("m1") + "\n"));

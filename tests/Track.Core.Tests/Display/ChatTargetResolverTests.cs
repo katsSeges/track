@@ -21,7 +21,51 @@ public sealed class ChatTargetResolverTests
 
         Assert.True(result.Found);
         Assert.Equal("vscode-chat", result.Target!.TargetId);
-        Assert.Equal(["--command", "workbench.action.chat.open"], result.Target.Arguments);
+        // VS Code has no command-line flag that opens its chat: it is just opened.
+        Assert.Empty(result.Target.Arguments);
+        Assert.Equal(ChatTargetKind.App, result.Target.Kind);
+    }
+
+    private static readonly ChatSearchFolders Folders = new(
+        @"C:\Users\u\.local\bin;relative\bin; ;\\server\share\bin;C:\Program Files\nodejs",
+        @"C:\Users\u\AppData\Local",
+        @"C:\Program Files",
+        @"C:\Users\u\AppData\Roaming");
+
+    [Fact]
+    public void Desktop_apps_are_looked_for_only_in_their_install_folders_never_on_path()
+    {
+        // claude.exe on PATH is the CLI; Windows names ignore case, so Claude.exe there would be the same file.
+        var app = ChatTargetResolver.TargetsFor(Tool.Claude).Single(t => t.Id == "claude-desktop");
+
+        Assert.Equal(
+            [
+                @"C:\Users\u\AppData\Local\AnthropicClaude\Claude.exe",
+                @"C:\Program Files\AnthropicClaude\Claude.exe",
+                @"C:\Users\u\AppData\Local\Programs\Claude\Claude.exe",
+                @"C:\Program Files\Programs\Claude\Claude.exe",
+            ],
+            ChatTargetResolver.CandidatePaths(app, Folders));
+        Assert.Contains(@"C:\Program Files\Microsoft VS Code\Code.exe",
+            ChatTargetResolver.CandidatePaths(ChatTargetResolver.TargetsFor(Tool.Cline)[0], Folders));
+    }
+
+    [Fact]
+    public void Command_line_tools_are_looked_for_in_local_absolute_path_folders_then_npm()
+    {
+        var cli = ChatTargetResolver.TargetsFor(Tool.Claude).Single(t => t.Id == "claude-cli");
+
+        Assert.Equal(ChatTargetKind.CommandLine, cli.Kind);
+        Assert.Equal(
+            [
+                @"C:\Users\u\.local\bin\claude.exe",
+                @"C:\Program Files\nodejs\claude.exe",
+                @"C:\Users\u\AppData\Roaming\npm\claude.exe",
+            ],
+            ChatTargetResolver.CandidatePaths(cli, Folders));
+        Assert.Equal(
+            [@"C:\Users\u\AppData\Roaming\npm\claude.exe"],
+            ChatTargetResolver.CandidatePaths(cli, Folders with { PathVariable = null }));
     }
 
     [Fact]

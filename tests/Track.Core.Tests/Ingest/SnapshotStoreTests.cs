@@ -109,7 +109,7 @@ public class SnapshotStoreTests
         {
             DocumentCursors =
             [
-                new DocumentCursor(@"C:\logs\session.jsonl", Tool.Gemini, "session", "5:123", Lines.Now, 123, [usage]),
+                new DocumentCursor(@"C:\logs\session.jsonl", Tool.Gemini, "session", "5:123", DocumentContribution.From([usage])),
             ],
         };
 
@@ -118,9 +118,12 @@ public class SnapshotStoreTests
 
         Assert.Equal(1, loaded.Version);
         var cursor = Assert.Single(loaded.DocumentCursors);
-        Assert.Equal((@"C:\logs\session.jsonl", Tool.Gemini, "session", "5:123", 123L),
-            (cursor.Path, cursor.Tool, cursor.SessionId, cursor.Fingerprint, cursor.Length));
-        Assert.Equal(usage, Assert.Single(cursor.Records));
+        Assert.Equal((@"C:\logs\session.jsonl", Tool.Gemini, "session", "5:123"),
+            (cursor.Path, cursor.Tool, cursor.SessionId, cursor.Fingerprint));
+        var contribution = cursor.Contribution!;
+        Assert.Equal(1, contribution.Records);
+        Assert.Equal(TokenCounts.From(usage), Assert.Single(contribution.Buckets).Tokens);
+        Assert.Equal(new SessionUsage(TokenCounts.From(usage), Lines.Now, Lines.Now), Assert.Single(contribution.Sessions).Usage);
     }
 
     [Fact]

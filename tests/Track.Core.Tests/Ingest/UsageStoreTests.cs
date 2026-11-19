@@ -99,13 +99,58 @@ public class UsageStoreTests
         var old = Record(Lines.Now) with { DedupeKey = "old" };
         var replacement = old with { DedupeKey = "replacement", Output = 20 };
         store.RestoreDocumentContributions([
-            new DocumentCursor("file.json", Tool.Claude, old.SessionId, "old-fingerprint", Lines.Now, 1, [old]),
+            new DocumentCursor("file.json", Tool.Claude, old.SessionId, "old-fingerprint", DocumentContribution.From([old])),
+            new DocumentCursor("unread.json", Tool.Claude, "other", "fingerprint"),
         ]);
 
         store.ReplaceDocumentContribution("file.json", [replacement]);
 
         Assert.Equal(20, store.Buckets.Values.Single().Output);
-        Assert.Equal("replacement", Assert.Single(store.DocumentContributions["file.json"]).DedupeKey);
+        Assert.Equal(20, Assert.Single(store.DocumentContributions["file.json"].Buckets).Tokens.Output);
+        Assert.Same(DocumentContribution.Empty, store.DocumentContributions["unread.json"]);
+    }
+
+    [Fact]
+    public void A_session_spread_over_documents_sums_them_and_goes_when_none_has_it()
+    {
+        var store = new UsageStore();
+        var early = Record(Lines.Now.AddHours(-2)) with { DedupeKey = "a" };
+        var late = Record(Lines.Now) with { DedupeKey = "b" };
+        store.ReplaceDocumentContribution("one.json", [early, early]);
+        store.ReplaceDocumentContribution("two.json", [late]);
+        store.ReplaceDocumentContribution("other.json", [late with { SessionId = "other" }]);
+
+        var session = store.Sessions[new SessionKey(early.Tool, early.SessionId)];
+        Assert.Equal((2L, early.Timestamp, late.Timestamp), (session.Tokens.Calls, session.FirstUtc, session.LastUtc));
+        // And the other way round: the first document summed now holds the later usage.
+        var latest = Record(Lines.Now.AddHours(1)) with { DedupeKey = "c" };
+        store.ReplaceDocumentContribution("one.json", [latest]);
+        session = store.Sessions[new SessionKey(early.Tool, early.SessionId)];
+        Assert.Equal((late.Timestamp, latest.Timestamp), (session.FirstUtc, session.LastUtc));
+
+        store.ReplaceDocumentContribution("one.json", []);
+        store.ReplaceDocumentContribution("two.json", []);
+        Assert.False(store.Sessions.ContainsKey(new SessionKey(early.Tool, early.SessionId)));
+        Assert.DoesNotContain(store.Buckets, b => b.Key.HourUtc < Lines.Now.AddHours(-1));
+    }
+
+    [Fact]
+    public void Pruning_rebuilds_only_documents_with_hours_that_fell_out_of_the_window()
+    {
+        var store = new UsageStore();
+        var old = Record(Lines.Now.AddDays(-91)) with { DedupeKey = "old" };
+        var recent = Record(Lines.Now) with { DedupeKey = "recent" };
+        store.ReplaceDocumentContribution("mixed.json", [old, recent]);
+        store.ReplaceDocumentContribution("recent.json", [recent with { SessionId = "r" }]);
+        store.ReplaceDocumentContribution("empty.json", []);
+        var untouched = store.DocumentContributions["recent.json"];
+
+        store.Prune(Lines.Now.AddDays(-90), Lines.Now.AddDays(-90));
+
+        Assert.Single(store.DocumentContributions["mixed.json"].Buckets);
+        Assert.Single(store.DocumentContributions["mixed.json"].Sessions);
+        Assert.Same(untouched, store.DocumentContributions["recent.json"]);
+        Assert.Equal(DateTimeOffset.MaxValue, store.DocumentContributions["empty.json"].OldestHourUtc);
     }
 
     [Fact]

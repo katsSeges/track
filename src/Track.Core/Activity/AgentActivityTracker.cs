@@ -367,7 +367,11 @@ public sealed class ActivityReader(IFileSystem fileSystem, LogScanner scanner, A
     public IReadOnlyDictionary<(Tool, string), DateTimeOffset> Refresh(DateTimeOffset now, IReadOnlyList<LogFile>? recent = null)
     {
         var lastWrite = new Dictionary<(Tool, string), DateTimeOffset>();
-        var files = recent ?? scanner.Scan(now - AgentActivityTracker.Forget);
+        // Only logs with work markers are read. The others (Gemini, OpenCode's database, Cline/Roo's one-line JSON
+        // documents) hold none, and reading them would mean reading whole files every few seconds.
+        var files = (recent ?? scanner.Scan(now - AgentActivityTracker.Forget))
+            .Where(f => ActivityParsers.HasDetailedActivity(f.Tool))
+            .ToList();
         foreach (var file in files)
         {
             var state = ReadNew(file);

@@ -6,26 +6,39 @@ using Track.Core.Parsing;
 
 namespace Track.Core.Ingest;
 
-/// <summary>A whole-file contribution whose records replace, rather than append to, the prior version.</summary>
+/// <summary>
+/// The version of a whole-file document that was last read. In the snapshot it also carries what that version
+/// added to the totals (<see cref="Contribution"/>), so a restart can replace it later without reading it first.
+/// </summary>
 public sealed record DocumentCursor(
     string Path,
     Tool Tool,
     string SessionId,
     string Fingerprint,
-    DateTimeOffset LastWriteUtc,
-    long Length,
-    IReadOnlyList<UsageRecord> Records);
+    DocumentContribution? Contribution = null);
 
 public sealed record DocumentReadResult(string Path, IReadOnlyList<UsageRecord> Records);
 
 /// <summary>Reads provider documents and remembers their contributions across refreshes and restarts.</summary>
-public sealed class DocumentLogReader(IFileSystem fileSystem)
+public sealed partial class DocumentLogReader(IFileSystem fileSystem)
 {
+    /// <summary>
+    /// Copies of OpenCode's database that hold the same usage again: its migration copy <c>opencode-next.db</c>
+    /// and backups. (<c>opencode.db</c>, <c>opencode-&lt;channel&gt;.db</c> and an <c>OPENCODE_DB</c> name are read.)
+    /// </summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"^opencode-next\.db$|backup|copy|\.bak|\.old", System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex OpenCodeDatabaseCopy();
+
     private readonly Dictionary<string, DocumentCursor> _cursors = new(StringComparer.OrdinalIgnoreCase);
 
     public DocumentReadResult? ReadChanged(LogFile file, DateTimeOffset keepFrom)
     {
         var path = DatabasePath(file);
+        if (file.Mode == LogReadMode.OpenCodeDatabase && OpenCodeDatabaseCopy().IsMatch(Path.GetFileName(path)))
+        {
+            return null;
+        }
+
         var fingerprint = Fingerprint(path, file.Mode);
         if (fingerprint is null || (_cursors.TryGetValue(path, out var previous) && previous.Fingerprint == fingerprint))
         {
@@ -37,40 +50,31 @@ public sealed class DocumentLogReader(IFileSystem fileSystem)
         {
             records = Parse(file with { Path = path }, keepFrom);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or SqliteException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or SqliteException)
         {
+            // Locked or busy right now: try again next refresh.
+            return null;
+        }
+        catch (JsonException)
+        {
+            // Broken or half-written: remember this version so it is not parsed again every refresh. What the
+            // document added before stays counted; a newer version is read as soon as it changes.
+            _cursors[path] = new DocumentCursor(path, file.Tool, file.SessionId, fingerprint);
             return null;
         }
 
-        var info = fileSystem.FileInfo.New(path);
-        var cursor = new DocumentCursor(
-            path,
-            file.Tool,
-            file.SessionId,
-            fingerprint,
-            new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero),
-            info.Length,
-            records);
-        _cursors[path] = cursor;
+        _cursors[path] = new DocumentCursor(path, file.Tool, file.SessionId, fingerprint);
         return new DocumentReadResult(path, records);
     }
 
+    /// <summary>The versions read so far (without contributions; the store holds those).</summary>
     public IReadOnlyList<DocumentCursor> SaveCursors() => _cursors.Values.ToList();
 
     public void RestoreCursors(IEnumerable<DocumentCursor> cursors)
     {
         foreach (var cursor in cursors)
         {
-            _cursors[cursor.Path] = cursor;
-        }
-    }
-
-    public void Prune(DateTimeOffset keepFrom)
-    {
-        foreach (var path in _cursors.Keys.ToList())
-        {
-            var cursor = _cursors[path];
-            _cursors[path] = cursor with { Records = cursor.Records.Where(record => record.Timestamp >= keepFrom).ToList() };
+            _cursors[cursor.Path] = cursor with { Contribution = null };
         }
     }
 
@@ -158,10 +162,14 @@ public sealed class DocumentLogReader(IFileSystem fileSystem)
         return records;
     }
 
+    /// <summary>
+    /// Gemini CLI's chat file: messages, checkpoints (<c>$set</c>), edits (<c>$patch</c>) and rewinds (<c>$rewindTo</c>).
+    /// Usage is counted per response id, latest version wins. A rewind or removal hides a response from the chat, but
+    /// it was sent and billed, so it stays counted.
+    /// </summary>
     private IReadOnlyList<UsageRecord> ParseGeminiJsonLines(LogFile file, DateTimeOffset keepFrom)
     {
         var messages = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        var order = new List<string>();
         var sessionId = file.SessionId;
 
         foreach (var line in fileSystem.File.ReadLines(file.Path))
@@ -203,11 +211,9 @@ public sealed class DocumentLogReader(IFileSystem fileSystem)
 
                     if (set.TryGetProperty("messages", out var checkpoint) && checkpoint.ValueKind == JsonValueKind.Array)
                     {
-                        messages.Clear();
-                        order.Clear();
                         foreach (var message in checkpoint.EnumerateArray())
                         {
-                            StoreMessage(message, messages, order);
+                            StoreMessage(message, messages);
                         }
                     }
 
@@ -220,62 +226,22 @@ public sealed class DocumentLogReader(IFileSystem fileSystem)
                 {
                     foreach (var message in legacyMessages.EnumerateArray())
                     {
-                        StoreMessage(message, messages, order);
+                        StoreMessage(message, messages);
                     }
                 }
 
-                if (record.TryGetProperty("$rewindTo", out var rewind) && rewind.ValueKind == JsonValueKind.String)
+                if (record.TryGetProperty("$rewindTo", out _) || record.TryGetProperty("$patch", out _))
                 {
-                    var rewindIndex = order.IndexOf(rewind.GetString()!);
-                    var removeAt = rewindIndex < 0 ? 0 : rewindIndex;
-                    foreach (var removed in order.Skip(removeAt).ToList())
-                    {
-                        messages.Remove(removed);
-                    }
-
-                    order.RemoveRange(removeAt, order.Count - removeAt);
                     continue;
                 }
 
-                if (record.TryGetProperty("$patch", out var patch) && patch.ValueKind == JsonValueKind.Object)
-                {
-                    if (patch.TryGetProperty("removeIds", out var removeIds) && removeIds.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var removed in removeIds.EnumerateArray())
-                        {
-                            if (removed.ValueKind != JsonValueKind.String)
-                            {
-                                continue;
-                            }
-
-                            var removedId = removed.GetString()!;
-                            messages.Remove(removedId);
-                            order.Remove(removedId);
-                        }
-                    }
-
-                    if (patch.TryGetProperty("orderIds", out var orderIds) && orderIds.ValueKind == JsonValueKind.Array)
-                    {
-                        var requestedOrder = orderIds.EnumerateArray()
-                            .Where(id => id.ValueKind == JsonValueKind.String)
-                            .Select(id => id.GetString()!)
-                            .Where(messages.ContainsKey)
-                            .ToList();
-                        var requestedIds = requestedOrder.ToHashSet(StringComparer.Ordinal);
-                        order = order.Where(id => !requestedIds.Contains(id)).Concat(requestedOrder).ToList();
-                    }
-
-                    continue;
-                }
-
-                StoreMessage(record, messages, order);
+                StoreMessage(record, messages);
             }
         }
 
         var records = new List<UsageRecord>();
-        foreach (var id in order)
+        foreach (var (id, message) in messages)
         {
-            var message = messages[id];
             if (!IsString(message, "type", "gemini")
                 || !TryReadTimestamp(message, "timestamp", out var timestamp)
                 || timestamp < keepFrom
@@ -285,11 +251,12 @@ public sealed class DocumentLogReader(IFileSystem fileSystem)
                 continue;
             }
 
-            var inputWithCache = ReadNonNegativeLong(tokens, "input");
+            // Gemini's counts: input (promptTokenCount) includes cached; tool-use prompt tokens and thoughts are
+            // billed on top of input and output (candidates), which exclude them.
             var cacheRead = ReadNonNegativeLong(tokens, "cached");
-            var input = Math.Max(0, inputWithCache - cacheRead);
-            var output = ReadNonNegativeLong(tokens, "output");
-            var reasoning = Math.Min(output, ReadNonNegativeLong(tokens, "thoughts"));
+            var input = Math.Max(0, ReadNonNegativeLong(tokens, "input") - cacheRead) + ReadNonNegativeLong(tokens, "tool");
+            var reasoning = ReadNonNegativeLong(tokens, "thoughts");
+            var output = ReadNonNegativeLong(tokens, "output") + reasoning;
             if (input + cacheRead + output == 0)
             {
                 continue;
@@ -326,62 +293,78 @@ public sealed class DocumentLogReader(IFileSystem fileSystem)
         command.CommandText = """
             SELECT id, session_id, time_created, data
             FROM session_message
-            WHERE type = 'assistant' AND time_created >= $from
+            WHERE type = 'assistant'
+              AND typeof(id) = 'text' AND typeof(session_id) = 'text' AND typeof(data) = 'text'
+              AND typeof(time_created) = 'integer' AND time_created BETWEEN $from AND $to
+              AND json_valid(data)
             """;
+        // Rows a reader cannot use (NULL or odd columns, broken JSON, impossible times) are left out by the
+        // query, so one bad row never stops the rest from being counted.
         command.Parameters.AddWithValue("$from", keepFrom.ToUnixTimeMilliseconds());
+        command.Parameters.AddWithValue("$to", DateTimeOffset.MaxValue.ToUnixTimeMilliseconds());
 
         using var rows = command.ExecuteReader();
         var records = new List<UsageRecord>();
         while (rows.Read())
         {
-            var id = rows.GetString(0);
-            var sessionId = rows.GetString(1);
-            var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(rows.GetInt64(2));
-            using var document = JsonDocument.Parse(rows.GetString(3));
-            var data = document.RootElement;
-            if (!data.TryGetProperty("tokens", out var tokens) || tokens.ValueKind != JsonValueKind.Object)
+            if (OpenCodeRecord(rows.GetString(0), rows.GetString(1), rows.GetInt64(2), rows.GetString(3)) is { } record)
             {
-                continue;
+                records.Add(record);
             }
-
-            var modelInfo = data.TryGetProperty("model", out var model)
-                && model.ValueKind == JsonValueKind.Object
-                    ? model
-                    : default;
-            var modelId = ReadString(modelInfo, "id");
-            if (modelId is null)
-            {
-                continue;
-            }
-
-            var providerId = ReadString(modelInfo, "providerID");
-            var cache = tokens.TryGetProperty("cache", out var cacheValue) && cacheValue.ValueKind == JsonValueKind.Object
-                ? cacheValue
-                : default;
-            var input = ReadNonNegativeLong(tokens, "input");
-            var output = ReadNonNegativeLong(tokens, "output");
-            var cacheRead = ReadNonNegativeLong(cache, "read");
-            var cacheWrite = ReadNonNegativeLong(cache, "write");
-            var reasoning = Math.Min(output, ReadNonNegativeLong(tokens, "reasoning"));
-            if (input + output + cacheRead + cacheWrite == 0)
-            {
-                continue;
-            }
-
-            records.Add(new UsageRecord(
-                Tool.OpenCode,
-                sessionId,
-                providerId is null ? modelId : $"{providerId}/{modelId}",
-                timestamp,
-                input,
-                cacheWrite,
-                cacheRead,
-                output,
-                reasoning,
-                id));
         }
 
         return records;
+    }
+
+    private static UsageRecord? OpenCodeRecord(string id, string sessionId, long createdMilliseconds, string json)
+    {
+        var timestamp = DateTimeOffset.FromUnixTimeMilliseconds(createdMilliseconds);
+        using var document = JsonDocument.Parse(json);
+        var data = document.RootElement;
+        if (data.ValueKind != JsonValueKind.Object
+            || !data.TryGetProperty("tokens", out var tokens)
+            || tokens.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var modelInfo = data.TryGetProperty("model", out var model)
+            && model.ValueKind == JsonValueKind.Object
+                ? model
+                : default;
+        var modelId = ReadString(modelInfo, "id");
+        if (modelId is null)
+        {
+            return null;
+        }
+
+        var providerId = ReadString(modelInfo, "providerID");
+        var cache = tokens.TryGetProperty("cache", out var cacheValue) && cacheValue.ValueKind == JsonValueKind.Object
+            ? cacheValue
+            : default;
+        // OpenCode splits usage into disjoint parts: input without cache, output without reasoning. Reasoning is
+        // billed as output, so it is added back (and also reported as reasoning).
+        var input = ReadNonNegativeLong(tokens, "input");
+        var reasoning = ReadNonNegativeLong(tokens, "reasoning");
+        var output = ReadNonNegativeLong(tokens, "output") + reasoning;
+        var cacheRead = ReadNonNegativeLong(cache, "read");
+        var cacheWrite = ReadNonNegativeLong(cache, "write");
+        if (input + output + cacheRead + cacheWrite == 0)
+        {
+            return null;
+        }
+
+        return new UsageRecord(
+            Tool.OpenCode,
+            sessionId,
+            providerId is null ? modelId : $"{providerId}/{modelId}",
+            timestamp,
+            input,
+            cacheWrite,
+            cacheRead,
+            output,
+            reasoning,
+            id);
     }
 
     private string? Fingerprint(string path, LogReadMode mode)
@@ -416,19 +399,12 @@ public sealed class DocumentLogReader(IFileSystem fileSystem)
             : file.Path;
     }
 
-    private static void StoreMessage(JsonElement message, Dictionary<string, JsonElement> messages, List<string> order)
+    private static void StoreMessage(JsonElement message, Dictionary<string, JsonElement> messages)
     {
-        if (ReadString(message, "id") is not { Length: > 0 } id)
+        if (ReadString(message, "id") is { Length: > 0 } id)
         {
-            return;
+            messages[id] = message.Clone();
         }
-
-        if (!messages.ContainsKey(id))
-        {
-            order.Add(id);
-        }
-
-        messages[id] = message.Clone();
     }
 
     private static string ReadModel(JsonElement message)

@@ -47,8 +47,9 @@ public static class HotkeyGestureParser
             modifiers |= modifier;
         }
 
+        // Shift alone (Shift+A) would take a letter from typing in every app: Ctrl, Alt or Win is needed.
         var key = parts[^1].ToUpperInvariant();
-        if (!IsSupportedKey(key))
+        if ((modifiers & (HotkeyModifiers.Control | HotkeyModifiers.Alt | HotkeyModifiers.Windows)) == 0 || !IsSupportedKey(key))
         {
             return false;
         }
