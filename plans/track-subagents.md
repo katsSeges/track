@@ -123,12 +123,12 @@ Status: Complete
 - Real-mouse / visual checks skipped at the user's request (goal 2026-11-19: "probably skip the computer tests for now").
 
 ## Phase 4: Docs, packaging, release
-Status: Complete (release prepared, not published)
+Status: Complete
 
 - [x] README: sub-agents in the island and the tray; refresh the hero / island images from demo data if they change (demo logs with sub-agents)
 - [x] Reinstall locally with `scripts\install.ps1 -Rebuild`
 - [x] Release prepared: `<Version>` 1.1.0, `docs/release-notes/v1.1.0.md`, local package built
-- [ ] Commit, push, CI green, tag `v1.1.0`, verify the release assets (left to the user: "don't commit, but prepare everything")
+- [x] Commit, push, CI green, tag `v1.1.0`, verify the release assets (released 2026-11-19 on the user's "release")
 
 ### Verification Plan
 - `scripts\test.ps1` 100 %; `scripts\check-series.ps1` "All equal." (usage totals unchanged)
@@ -136,7 +136,7 @@ Status: Complete (release prepared, not published)
 - If released: CI and Release workflows green; the zip's digest on GitHub equals the workflow's sha256
 
 ### Phase Summary
-**Release prepared 2026-11-19, not committed or published** (user: "don't commit, but prepare everything for it").
+**Released 2026-11-19** as https://github.com/katsSeges/track/releases/tag/v1.1.0 (commit c0ec388, CI and Release workflows green; `Track-1.1.0-win-x64.zip` 58.5 MB, sha256 `9b642c6d…a294`, equal in the asset digest, the `.sha256` file and the workflow log).
 - **README rewritten** to be short: title, tagline, badges, hero image, a download link, three one-line features, two images side by side (animated island, sub-agents), a 2-step install, "Private by design" with the log folders, and Tips / About the prices folded into `<details>`. Developer material moved to the new **`docs/DEVELOPMENT.md`** (build and test, data check, project layout, install from source, releases, verification switches).
 - **New images** in `docs/images/`, rendered by Track itself from made-up demo logs (no real usage): `hero.png` (light popover Week · island with sub-agents · dark popover Month), `island.png` (animated PNG, 9 frames: working → two agents → dots → sub-agents → Usage today/month → done → idle), `subagents.png`. The demo generator gives today's demo sessions the island demo agents' ids so "this session" shows numbers.
 - Version **1.1.0** in `src/Track.App/Track.App.csproj`; notes in `docs/release-notes/v1.1.0.md`.
@@ -147,7 +147,7 @@ Track 1.1.0 shows the sub-agents of Claude Code, Codex and Copilot.
 - **Data (Phases 1–2):** each tool's parser turns its sub-agent lines into sub-agent events on the parent session (Claude sidechain logs + meta files, Copilot `agentId` events incl. resumes, Codex spawned threads incl. their copied parent history); the tracker keeps them per agent with start, end, tokens and nesting, keeps an agent while its background sub-agents run (its timer stopped at its own turn end), drops finished ones when the agent leaves, and never shows a Codex child thread as an agent. Two older bugs fixed on the way: a Claude sub-agent restarting / ending its parent's task, and Codex sub-agents showing as separate agents.
 - **UI (Phase 3):** sub-agent rows under each agent in the opened island (guide line, pulsing dot, name, task, model · tokens, run time, dimmed ✓ when done, nesting), dots in the compact pill, "1 session · 2 sub-agents" in the tray.
 - **Correctness:** 471 tests at 100 % line/branch/method with hand-computed values; on the user's real logs all 12 Copilot sub-agents match Copilot's own `durationMs` and `totalTokens` exactly, all 10 Claude sub-agents are named and end at their log's last write, all 16 Codex child threads attach to their parent (96 checks, 0 mismatches); an end-to-end run of the real app on live logs; idle 0.24 % CPU / 42.9 MB.
-- **Release prep (Phase 4):** a much shorter README with new demo images, `docs/DEVELOPMENT.md`, version 1.1.0, release notes, a locally built and installed package. Not committed (user's instruction).
+- **Release prep (Phase 4):** a much shorter README with new demo images, `docs/DEVELOPMENT.md`, version 1.1.0, release notes, a locally built and installed package. Released as 1.1.0 on GitHub.
 
 ## Deployment Plan
 Everything is in the working tree; nothing is committed.
