@@ -874,6 +874,8 @@ public sealed class TrayController : IDisposable
     private void RenderAnalyticsAndExit(string directory, PriceTable prices)
     {
         Directory.CreateDirectory(directory);
+        var dark = AppDark(_options);
+        ApplyRenderAccent("#C450B8", dark);
         lock (_gate)
         {
             _usage.Prices = prices;
@@ -891,7 +893,7 @@ public sealed class TrayController : IDisposable
                 }
             },
             () => _vm.ListedUsageTools,
-            AppDark(_options),
+            dark,
             _settings.Appearance.Material)
         {
             Left = -4000,
@@ -900,7 +902,12 @@ public sealed class TrayController : IDisposable
         window.PrepareForRender();
         window.Show();
         window.UpdateLayout();
-        SaveWindow(window, Path.Combine(directory, $"analytics-{(AppDark(_options) ? "dark" : "light")}.png"));
+        var theme = dark ? "dark" : "light";
+        SaveWindow(window, Path.Combine(directory, $"analytics-{theme}.png"));
+        window.SavePresetDropdownForRender(Path.Combine(directory, $"analytics-{theme}-preset-dropdown.png"));
+        window.SaveCustomRangeForRender(
+            Path.Combine(directory, $"analytics-{theme}-custom-range.png"),
+            Path.Combine(directory, $"analytics-{theme}-calendar.png"));
         Application.Current.Shutdown();
     }
 
@@ -909,16 +916,30 @@ public sealed class TrayController : IDisposable
         Directory.CreateDirectory(directory);
         const string renderAccent = "#C450B8";
         var dark = AppDark(_options);
-        var rgb = ColorPickerMath.ToRgb(ColorPickerMath.FromHex(renderAccent));
-        Application.Current.Resources["Accent"] = new SolidColorBrush(Color.FromRgb(rgb.Red, rgb.Green, rgb.Blue));
-        Application.Current.Resources["AccentOn"] = new SolidColorBrush(
-            ColorPickerMath.ContrastTextHex(renderAccent) == "#000000" ? Colors.Black : Colors.White);
-        var edge = ColorPickerMath.ToRgb(ColorPickerMath.FromHex(
-            ColorPickerMath.VisibleAccentHex(renderAccent, dark ? "#28282C" : "#F6F6F8")));
-        Application.Current.Resources["AccentEdge"] = new SolidColorBrush(Color.FromRgb(edge.Red, edge.Green, edge.Blue));
+        ApplyRenderAccent(renderAccent, dark);
+        var demoBudget = new BudgetSettings
+        {
+            Enabled = true,
+            Period = BudgetPeriod.Month,
+            Total = new BudgetThreshold(75m, 120_000),
+            Providers = new Dictionary<Tool, BudgetThreshold>
+            {
+                [Tool.Claude] = new(25m, 40_000),
+                [Tool.Codex] = new(30m, 50_000),
+                [Tool.Copilot] = new(20m, 30_000),
+                [Tool.Gemini] = new(15m, 25_000),
+                [Tool.OpenCode] = new(18m, 28_000),
+            },
+        };
         var settings = _settings with
         {
             Appearance = _settings.Appearance with { Material = WindowMaterial.Solid, AccentColor = renderAccent },
+            Behavior = _settings.Behavior with
+            {
+                NotificationsEnabled = true,
+                HotkeyEnabled = true,
+                Budget = demoBudget,
+            },
         };
         var window = new SettingsWindow(settings)
         {
@@ -940,6 +961,17 @@ public sealed class TrayController : IDisposable
         window.SaveColorPickerForRender(Path.Combine(directory, $"settings-color-wheel-{(dark ? "dark" : "light")}.png"), renderAccent);
         window.Close();
         Application.Current.Shutdown();
+    }
+
+    private static void ApplyRenderAccent(string accent, bool dark)
+    {
+        var rgb = ColorPickerMath.ToRgb(ColorPickerMath.FromHex(accent));
+        Application.Current.Resources["Accent"] = new SolidColorBrush(Color.FromRgb(rgb.Red, rgb.Green, rgb.Blue));
+        Application.Current.Resources["AccentOn"] = new SolidColorBrush(
+            ColorPickerMath.ContrastTextHex(accent) == "#000000" ? Colors.Black : Colors.White);
+        var edge = ColorPickerMath.ToRgb(ColorPickerMath.FromHex(
+            ColorPickerMath.VisibleAccentHex(accent, dark ? "#28282C" : "#F6F6F8")));
+        Application.Current.Resources["AccentEdge"] = new SolidColorBrush(Color.FromRgb(edge.Red, edge.Green, edge.Blue));
     }
 
     private static void SaveWindow(Window window, string path)

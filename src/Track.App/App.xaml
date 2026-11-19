@@ -8,6 +8,7 @@
                 <!-- Index 0 is the palette; Theme.Apply swaps it between Light and Dark. -->
                 <ResourceDictionary Source="Themes/Light.xaml" />
                 <ResourceDictionary Source="Themes/Styles.xaml" />
+                <ResourceDictionary Source="Themes/WindowControls.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

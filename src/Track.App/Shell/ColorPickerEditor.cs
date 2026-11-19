@@ -108,14 +108,12 @@ internal sealed class ColorPickerEditor : UserControl
 
     private Border BuildPopup()
     {
-        var controls = new ResourceDictionary { Source = new Uri("Themes/WindowControls.xaml", UriKind.Relative) };
         var border = new Border
         {
             Width = 520,
             Padding = new Thickness(16),
             CornerRadius = new CornerRadius(10),
             BorderThickness = new Thickness(1),
-            Resources = { MergedDictionaries = { controls } },
         };
         border.SetResourceReference(Border.BackgroundProperty, "SurfaceElevated");
         border.SetResourceReference(Border.BorderBrushProperty, "ControlBorder");

@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using Track.Core;
 using Track.Core.Display;
@@ -23,9 +24,9 @@ internal sealed class AnalyticsWindow : Window
     private readonly Border _surface = new() { CornerRadius = new CornerRadius(12), Padding = new Thickness(18) };
     private readonly ComboBox _preset = new() { Width = 130, Margin = new Thickness(0, 0, 8, 0) };
     private readonly TextBlock _startLabel = new() { Text = "From", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), FontSize = 11 };
-    private readonly TextBox _start = new() { Width = 140, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Start date (yyyy-MM-dd)" };
+    private readonly DatePicker _start = new() { Width = 150, Margin = new Thickness(0, 0, 8, 0), ToolTip = "Start date" };
     private readonly TextBlock _endLabel = new() { Text = "To", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), FontSize = 11 };
-    private readonly TextBox _end = new() { Width = 140, Margin = new Thickness(0, 0, 8, 0), ToolTip = "End date (yyyy-MM-dd)" };
+    private readonly DatePicker _end = new() { Width = 150, Margin = new Thickness(0, 0, 8, 0), ToolTip = "End date" };
     private readonly TextBlock _status = new() { Margin = new Thickness(0, 4, 0, 6), FontSize = 11 };
     private readonly StackPanel _content = new();
     private readonly AnalyticsChart _tokenChart = new(AnalyticsChartMetric.Tokens);
@@ -58,7 +59,6 @@ internal sealed class AnalyticsWindow : Window
         ResizeMode = ResizeMode.CanResizeWithGrip;
         Background = Brushes.Transparent;
         SetResourceReference(Control.ForegroundProperty, "Fg");
-        Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("Themes/WindowControls.xaml", UriKind.Relative) });
         Content = _surface;
         SourceInitialized += (_, _) =>
         {
@@ -96,6 +96,28 @@ internal sealed class AnalyticsWindow : Window
         {
             scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
         }
+    }
+
+    public void SavePresetDropdownForRender(string path)
+    {
+        _preset.ApplyTemplate();
+        _preset.IsDropDownOpen = true;
+        UpdateLayout();
+        SavePopupForRender(_preset, path);
+        _preset.IsDropDownOpen = false;
+    }
+
+    public void SaveCustomRangeForRender(string windowPath, string calendarPath)
+    {
+        _preset.SelectedIndex = 3;
+        UpdateDateInputs();
+        UpdateLayout();
+        SaveWindowForRender(windowPath);
+        _start.ApplyTemplate();
+        _start.IsDropDownOpen = true;
+        UpdateLayout();
+        SavePopupForRender(_start, calendarPath);
+        _start.IsDropDownOpen = false;
     }
 
     public void RefreshData()
@@ -355,8 +377,8 @@ internal sealed class AnalyticsWindow : Window
                 1 => _builder.LastDays(30),
                 2 => _builder.LastDays(90),
                 _ => _builder.CustomRange(
-                    ParseDate(_start.Text, "start"),
-                    ParseDate(_end.Text, "end")),
+                    ParseDate(_start.SelectedDate, "start"),
+                    ParseDate(_end.SelectedDate, "end")),
             };
             RefreshData();
         }
@@ -377,20 +399,71 @@ internal sealed class AnalyticsWindow : Window
         {
             if (string.IsNullOrWhiteSpace(_start.Text))
             {
-                _start.Text = _range.StartDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                _start.SelectedDate = _range.StartDate.ToDateTime(TimeOnly.MinValue);
             }
 
             if (string.IsNullOrWhiteSpace(_end.Text))
             {
-                _end.Text = _range.EndDateInclusive.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                _end.SelectedDate = _range.EndDateInclusive.ToDateTime(TimeOnly.MinValue);
             }
         }
     }
 
-    private static DateOnly ParseDate(string value, string label) =>
-        DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
-            ? date
-            : throw new ArgumentException($"Enter the {label} date as yyyy-MM-dd.");
+    private static DateOnly ParseDate(DateTime? value, string label) =>
+        value is { } date
+            ? DateOnly.FromDateTime(date)
+            : throw new ArgumentException($"Choose the {label} date.");
+
+    private void SaveWindowForRender(string path)
+    {
+        var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        var width = Math.Max(1, (int)Math.Ceiling(_surface.ActualWidth * scale));
+        var height = Math.Max(1, (int)Math.Ceiling(_surface.ActualHeight * scale));
+        var bitmap = new RenderTargetBitmap(width, height, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        bitmap.Render(_surface);
+        SaveBitmap(bitmap, path);
+    }
+
+    private static void SavePopupForRender(ComboBox selector, string path)
+    {
+        if (selector.Template.FindName("PART_Popup", selector) is Popup { Child: FrameworkElement content } popup)
+        {
+            content.Measure(new Size(380, 360));
+            content.Arrange(new Rect(new Point(0, 0), content.DesiredSize));
+            content.UpdateLayout();
+            SaveElement(content, path);
+        }
+    }
+
+    private static void SavePopupForRender(DatePicker picker, string path)
+    {
+        if (picker.Template.FindName("PART_Popup", picker) is Popup { Child: FrameworkElement content } popup)
+        {
+            content.Measure(new Size(380, 360));
+            content.Arrange(new Rect(new Point(0, 0), content.DesiredSize));
+            content.UpdateLayout();
+            SaveElement(content, path);
+        }
+    }
+
+    private static void SaveElement(FrameworkElement element, string path)
+    {
+        var scale = VisualTreeHelper.GetDpi(element).DpiScaleX;
+        var width = Math.Max(1, (int)Math.Ceiling(element.ActualWidth * scale));
+        var height = Math.Max(1, (int)Math.Ceiling(element.ActualHeight * scale));
+        var bitmap = new RenderTargetBitmap(width, height, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+        bitmap.Render(element);
+        SaveBitmap(bitmap, path);
+    }
+
+    private static void SaveBitmap(RenderTargetBitmap bitmap, string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var output = File.Create(path);
+        encoder.Save(output);
+    }
 
     private void ExportCsv()
     {
