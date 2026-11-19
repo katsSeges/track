@@ -1,10 +1,12 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.IO.Abstractions;
 using System.Net.Http;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using H.NotifyIcon;
 using Microsoft.Win32;
@@ -21,6 +23,7 @@ using Track.Core.Settings;
 using Track.Core.Tray;
 using Track.Core.Time;
 using Track.Core.Usage;
+using ThemeMode = Track.Core.Settings.ThemeMode;
 
 namespace Track.App.Shell;
 
@@ -109,6 +112,7 @@ public sealed class TrayController : IDisposable
     private TaskbarIcon? _tray;
     private PopoverWindow? _popover;
     private ModelCardWindow? _card;
+    private SettingsWindow? _settingsWindow;
     private IReadOnlyDictionary<Tool, LiveStatus> _live = new Dictionary<Tool, LiveStatus>();
     private string? _iconKey;
     private string _priceNote = "bundled prices";
@@ -187,10 +191,21 @@ public sealed class TrayController : IDisposable
         _priceTimer = new DispatcherTimer(TimeSpan.FromHours(6), DispatcherPriority.Background, (_, _) => LoadPrices(), ui);
     }
 
-    private static bool AppDark(AppOptions o) => o.DarkOverride ?? Native.ReadTheme(taskbar: false) == TaskbarTheme.Dark;
+    private bool AppDark(AppOptions o) => o.DarkOverride ?? (_settings.Appearance.Theme switch
+    {
+        ThemeMode.Light => false,
+        ThemeMode.Dark => true,
+        _ => Native.ReadTheme(taskbar: false) == TaskbarTheme.Dark,
+    });
 
-    private static TaskbarTheme TaskbarThemeFor(AppOptions o) =>
-        o.DarkOverride is { } dark ? (dark ? TaskbarTheme.Dark : TaskbarTheme.Light) : Native.ReadTheme(taskbar: true);
+    private TaskbarTheme TaskbarThemeFor(AppOptions o) => o.DarkOverride is { } dark
+        ? (dark ? TaskbarTheme.Dark : TaskbarTheme.Light)
+        : _settings.Appearance.Theme switch
+        {
+            ThemeMode.Light => TaskbarTheme.Light,
+            ThemeMode.Dark => TaskbarTheme.Dark,
+            _ => Native.ReadTheme(taskbar: true),
+        };
 
     public void Start()
     {
@@ -323,7 +338,7 @@ public sealed class TrayController : IDisposable
             _vm.LiveUpdated(_live = _liveDetector.Detect());
         }
 
-        _popover = new PopoverWindow { DataContext = _vm, Dark = AppDark(_options), Pinned = true, Left = -4000, Top = 0, ShowActivated = false };
+        _popover = new PopoverWindow { DataContext = _vm, Dark = AppDark(_options), Material = _settings.Appearance.Material, Pinned = true, Left = -4000, Top = 0, ShowActivated = false };
         _popover.Show();
         foreach (var period in Enum.GetValues<Period>())
         {
@@ -343,7 +358,7 @@ public sealed class TrayController : IDisposable
         _vm.ToggleChartCommand.Execute(null);
         _popover.UpdateLayout();
 
-        _card = new ModelCardWindow { Dark = AppDark(_options), Left = -4000, Top = 0 };
+        _card = new ModelCardWindow { Dark = AppDark(_options), Material = _settings.Appearance.Material, Left = -4000, Top = 0 };
         foreach (var tool in Enum.GetValues<Tool>())
         {
             var row = FindRow(_popover, tool);
@@ -905,9 +920,10 @@ public sealed class TrayController : IDisposable
     {
         if (_popover is null)
         {
-            _popover = new PopoverWindow { DataContext = _vm, Dark = AppDark(_options) };
+            _popover = new PopoverWindow { DataContext = _vm, Dark = AppDark(_options), Material = _settings.Appearance.Material };
             _popover.RowHovered += (tool, row) => ShowCard(tool, row);
             _popover.RowLeft += () => _card?.Hide();
+            _popover.SettingsRequested += () => OpenSettings(SettingsTab.Appearance);
             _popover.IsVisibleChanged += (_, _) =>
             {
                 _tick.IsEnabled = _popover.IsVisible;
@@ -948,7 +964,7 @@ public sealed class TrayController : IDisposable
             return;
         }
 
-        _card ??= new ModelCardWindow { Dark = AppDark(_options) };
+        _card ??= new ModelCardWindow { Dark = AppDark(_options), Material = _settings.Appearance.Material };
         ModelBreakdownViewModel card;
         lock (_gate)
         {
@@ -1017,6 +1033,8 @@ public sealed class TrayController : IDisposable
         };
         menu.Items.Add(island);
         menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Settings…", () => OpenSettings(SettingsTab.Appearance)));
+        menu.Items.Add(new Separator());
         menu.Items.Add(Item("Quit", () => Application.Current.Shutdown()));
         return menu;
     }
@@ -1028,16 +1046,40 @@ public sealed class TrayController : IDisposable
         return item;
     }
 
-    private void ChangeSettings(TrackSettings settings)
+    private void ChangeSettings(TrackSettings settings, bool fromSettingsWindow = false)
     {
         _settings = settings;
         _settingsStore.Save(settings);
+        if (!fromSettingsWindow)
+        {
+            _settingsWindow?.ApplySettings(settings);
+        }
+
         lock (_gate)
         {
             _vm.ApplySettings(settings);
         }
 
+        ApplyTheme();
         UpdateTrayIcon(force: true);
+    }
+
+    private void OpenSettings(SettingsTab tab)
+    {
+        if (_settingsWindow is null)
+        {
+            _settingsWindow = new SettingsWindow(_settings)
+            {
+                Dark = AppDark(_options),
+            };
+            _settingsWindow.SettingsChanged += (_, changed) => ChangeSettings(changed, fromSettingsWindow: true);
+            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        }
+
+        _settingsWindow.Dark = AppDark(_options);
+        _settingsWindow.SelectTab(tab);
+        _settingsWindow.Show();
+        _settingsWindow.Activate();
     }
 
     private void OnUserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e) => _ui.BeginInvoke(() =>
@@ -1051,9 +1093,11 @@ public sealed class TrayController : IDisposable
         var dark = AppDark(_options);
         var dictionaries = Application.Current.Resources.MergedDictionaries;
         dictionaries[0] = new ResourceDictionary { Source = new Uri(dark ? "Themes/Dark.xaml" : "Themes/Light.xaml", UriKind.Relative) };
+        ApplyCustomColors(dark);
         if (_popover is not null)
         {
             _popover.Dark = dark;
+            _popover.Material = _settings.Appearance.Material;
             if (_popover.IsLoaded)
             {
                 _popover.ApplyBackdrop();
@@ -1063,6 +1107,58 @@ public sealed class TrayController : IDisposable
         if (_card is not null)
         {
             _card.Dark = dark;
+            _card.Material = _settings.Appearance.Material;
+            if (_card.IsLoaded)
+            {
+                _card.ApplyBackdrop();
+            }
         }
+
+        if (_settingsWindow is not null)
+        {
+            _settingsWindow.Dark = dark;
+            if (_settingsWindow.IsLoaded)
+            {
+                _settingsWindow.ApplyBackdrop();
+            }
+        }
+    }
+
+    private void ApplyCustomColors(bool dark)
+    {
+        var resources = Application.Current.Resources;
+        var accent = TryColor(_settings.Appearance.AccentColor, out var customAccent)
+            ? customAccent
+            : Color.FromRgb(0x0A, 0x66, 0xD8);
+        resources["Accent"] = new SolidColorBrush(accent);
+
+        foreach (var provider in ProviderCatalog.All)
+        {
+            if (_settings.Appearance.ProviderColors.TryGetValue(provider.Id, out var custom)
+                && TryColor(dark ? custom.Dark : custom.Light, out var color))
+            {
+                resources[provider.Id.ToString()] = new SolidColorBrush(color);
+            }
+            else
+            {
+                resources.Remove(provider.Id.ToString());
+            }
+        }
+    }
+
+    private static bool TryColor(string? value, out Color color)
+    {
+        if (value is { Length: 7 }
+            && value[0] == '#'
+            && byte.TryParse(value.AsSpan(1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var red)
+            && byte.TryParse(value.AsSpan(3, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var green)
+            && byte.TryParse(value.AsSpan(5, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var blue))
+        {
+            color = Color.FromRgb(red, green, blue);
+            return true;
+        }
+
+        color = default;
+        return false;
     }
 }

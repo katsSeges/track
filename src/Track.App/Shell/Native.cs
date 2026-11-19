@@ -16,25 +16,36 @@ internal static partial class Native
     private const int DwmUseImmersiveDarkMode = 20;
     private const int DwmWindowCornerPreference = 33;
     private const int DwmSystemBackdropType = 38;
+    private const int BackdropNone = 1;
+    private const int BackdropMainWindow = 2;
     private const int BackdropTransientWindow = 3;
+    private const int BackdropTabbedWindow = 4;
     private const int CornerRound = 2;
     private const int GwlExStyle = -20;
     private const int WsExToolWindow = 0x80;
     private const int WsExNoActivate = 0x08000000;
 
-    /// <summary>Acrylic ("transient window") backdrop, rounded corners and dark title colors. False when not supported.</summary>
-    public static bool ApplyBackdrop(Window window, bool dark)
+    /// <summary>Applies the selected DWM material, rounded corners and title colors. False when a material is unsupported.</summary>
+    public static bool ApplyBackdrop(Window window, bool dark, WindowMaterial material)
     {
         var hwnd = new WindowInteropHelper(window).Handle;
         HwndSource.FromHwnd(hwnd)!.CompositionTarget!.BackgroundColor = Colors.Transparent;
         var darkFlag = dark ? 1 : 0;
         var corner = CornerRound;
-        var backdrop = BackdropTransientWindow;
+        var backdrop = material switch
+        {
+            WindowMaterial.Acrylic => BackdropTransientWindow,
+            WindowMaterial.Mica => BackdropMainWindow,
+            WindowMaterial.MicaAlt => BackdropTabbedWindow,
+            WindowMaterial.Solid => BackdropNone,
+            _ => BackdropNone,
+        };
         DwmSetWindowAttribute(hwnd, DwmUseImmersiveDarkMode, ref darkFlag, sizeof(int));
         DwmSetWindowAttribute(hwnd, DwmWindowCornerPreference, ref corner, sizeof(int));
         var margins = new Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
         DwmExtendFrameIntoClientArea(hwnd, ref margins);
-        return DwmSetWindowAttribute(hwnd, DwmSystemBackdropType, ref backdrop, sizeof(int)) == 0;
+        var result = DwmSetWindowAttribute(hwnd, DwmSystemBackdropType, ref backdrop, sizeof(int));
+        return material != WindowMaterial.Solid && result == 0;
     }
 
     /// <summary>Never takes focus and stays out of Alt+Tab.</summary>

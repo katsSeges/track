@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Windows;
 using System.Windows.Media;
 using Track.Core.Display;
+using Track.Core.Settings;
 
 namespace Track.App.Shell;
 
@@ -15,11 +16,16 @@ public partial class ModelCardWindow : Window
         SourceInitialized += (_, _) =>
         {
             Native.MakeToolWindow(this, noActivate: true);
-            Surface.Background = (Brush)FindResource(Native.ApplyBackdrop(this, Dark) ? "PopBg" : "PopSolid");
+            ApplyBackdrop();
         };
     }
 
     public bool Dark { get; set; }
+
+    public WindowMaterial Material { get; set; } = WindowMaterial.Acrylic;
+
+    public void ApplyBackdrop() =>
+        Surface.Background = (Brush)FindResource(Native.ApplyBackdrop(this, Dark, Material) ? "PopBg" : "PopSolid");
 
     /// <summary>Shows the card to the left of the popover, level with the row; above it when there is no room.</summary>
     public void ShowFor(ModelBreakdownViewModel card, Window popover, FrameworkElement row)

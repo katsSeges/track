@@ -1,0 +1,35 @@
+{
+  "startWithWindows": true,
+  "lastPeriod": "Today",
+  "refreshSeconds": 30,
+  "iconLayout": "Triangle",
+  "idleLook": "GreyMark",
+  "nothingRunningLook": "AllGrey",
+  "rowLogos": true,
+  "visibility": {
+    "trayLimitWeek": 5000000,
+    "trayLimitMonth": 10000000,
+    "trayRule": "BelowBoth",
+    "weekWindow": "LastFullWeek",
+    "monthWindow": "LastFullMonth",
+    "showWhenRunning": true,
+    "includeCurrentPeriod": true,
+    "removeAfterNoUsageDays": 30
+  },
+  "island": {
+    "enabled": true,
+    "timerFrom": "Turn",
+    "compact": "Tokens",
+    "activity": "Wave",
+    "multi": "Split",
+    "showDone": true,
+    "hideAfterMinutes": 5,
+    "revealDelayMs": 600,
+    "expand": "Click",
+    "expanded": "Agents",
+    "screen": "Primary",
+    "hideOverFullScreen": true,
+    "openTab": "Now"
+  },
+  "popoverChartHidden": false
+}

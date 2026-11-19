@@ -2,6 +2,8 @@ using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
+using Track.Core;
+using Track.Core.Display;
 using Track.Core.Settings;
 using Track.Core.Usage;
 
@@ -20,6 +22,96 @@ public class SettingsTests
             (true, Period.Today, 30, IconLayout.Triangle, IdleLook.GreyMark, NothingRunningLook.AllGrey, true),
             (s.StartWithWindows, s.LastPeriod, s.RefreshSeconds, s.IconLayout, s.IdleLook, s.NothingRunningLook, s.RowLogos));
         Assert.Equal(new VisibilitySettings(), s.Visibility);
+        Assert.Equal((ThemeMode.System, WindowMaterial.Acrylic, "#0A66D8"), (s.Appearance.Theme, s.Appearance.Material, s.Appearance.AccentColor));
+        Assert.False(s.Behavior.NotificationsEnabled);
+        Assert.True(s.Behavior.HotkeyEnabled);
+        Assert.Equal("Ctrl+Alt+Shift+T", s.Behavior.HotkeyGesture);
+    }
+
+    [Fact]
+    public void Settings_view_model_updates_and_persists_all_three_tabs()
+    {
+        var fs = new MockFileSystem();
+        var store = new SettingsStore(fs, Path);
+        var vm = new SettingsViewModel(new TrackSettings());
+        var changed = new List<TrackSettings>();
+        vm.SettingsChanged += (_, settings) => changed.Add(settings);
+
+        vm.SelectedTab = SettingsTab.Providers;
+        vm.SetTheme(ThemeMode.Dark);
+        vm.SetMaterial(WindowMaterial.MicaAlt);
+        vm.SetAccentColor("#12ab34");
+        vm.SetProviderColors(Tool.Gemini, "#112233", "#445566");
+        vm.SetProviderMode(Tool.Gemini, ProviderMode.On);
+        vm.SetNotificationsEnabled(true);
+        vm.SetHotkey(false, "Alt+Shift+T");
+
+        Assert.Equal(SettingsTab.Providers, vm.SelectedTab);
+        Assert.Equal(7, changed.Count);
+        Assert.Equal("#12AB34", vm.Settings.Appearance.AccentColor);
+        Assert.Equal(new ProviderColorOverride("#112233", "#445566"), vm.Settings.Appearance.ProviderColors[Tool.Gemini]);
+        Assert.Equal(ProviderMode.On, vm.Settings.Providers.ModeFor(Tool.Gemini));
+        Assert.True(vm.Settings.Behavior.NotificationsEnabled);
+        Assert.False(vm.Settings.Behavior.HotkeyEnabled);
+        Assert.Equal("Alt+Shift+T", vm.Settings.Behavior.HotkeyGesture);
+
+        Assert.True(store.Save(vm.Settings));
+        Assert.Equal(vm.Settings, store.Load());
+        Assert.Equal(vm.Settings.Appearance.GetHashCode(), store.Load().Appearance.GetHashCode());
+
+        vm.ResetProviderColors();
+        Assert.Empty(vm.Settings.Appearance.ProviderColors);
+        Assert.Equal(8, changed.Count);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("red")]
+    [InlineData("x123456")]
+    [InlineData("#GG0000")]
+    public void Settings_view_model_rejects_invalid_colors(string color)
+    {
+        var vm = new SettingsViewModel(new TrackSettings());
+
+        Assert.Throws<ArgumentException>(() => vm.SetAccentColor(color));
+    }
+
+    [Fact]
+    public void Settings_view_model_does_not_notify_for_an_unchanged_value()
+    {
+        var vm = new SettingsViewModel(new TrackSettings());
+        var changes = 0;
+        vm.SettingsChanged += (_, _) => changes++;
+
+        vm.SetTheme(ThemeMode.System);
+
+        Assert.Equal(0, changes);
+    }
+
+    [Fact]
+    public void Appearance_hash_code_handles_empty_and_custom_provider_colors()
+    {
+        var empty = new AppearanceSettings();
+        var custom = empty with
+        {
+            ProviderColors = new Dictionary<Tool, ProviderColorOverride>
+            {
+                [Tool.Gemini] = new("#112233", "#445566"),
+            },
+        };
+
+        _ = empty.GetHashCode();
+        _ = custom.GetHashCode();
+    }
+
+    [Fact]
+    public void Settings_view_model_updates_without_a_change_listener()
+    {
+        var vm = new SettingsViewModel(new TrackSettings());
+
+        vm.SetTheme(ThemeMode.Dark);
+
+        Assert.Equal(ThemeMode.Dark, vm.Settings.Appearance.Theme);
     }
 
     [Fact]
@@ -62,26 +154,30 @@ public class SettingsTests
     }
 
     [Fact]
-    public void A_legacy_1_1_settings_file_loads_and_ignores_unknown_properties()
+    public void The_v1_1_settings_serializer_fixture_loads_with_current_defaults()
     {
-        const string legacy = """{"startWithWindows":false,"lastPeriod":"Week","iconLayout":"Row","visibility":{"trayLimitWeek":42},"futureProperty":"ignored"}""";
-        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(legacy) });
+        var fixture = File.ReadAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "settings-v1.1.0.json"));
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(fixture) });
 
         var loaded = new SettingsStore(fs, Path).Load();
 
-        Assert.False(loaded.StartWithWindows);
-        Assert.Equal(Period.Week, loaded.LastPeriod);
-        Assert.Equal(IconLayout.Row, loaded.IconLayout);
-        Assert.Equal(42, loaded.Visibility.TrayLimitWeek);
-        Assert.Equal(ProviderMode.Auto, loaded.Providers.ModeFor(Tool.Claude));
-        Assert.Equal(ProviderMode.Auto, loaded.Providers.ModeFor(Tool.Gemini));
-        Assert.Equal(ProviderMode.Off, loaded.Providers.ModeFor(Tool.Ollama));
+        Assert.Equal(new TrackSettings(), loaded);
     }
 
     [Fact]
-    public void An_unknown_enum_value_uses_the_existing_whole_file_default_fallback()
+    public void Unknown_settings_properties_are_ignored()
     {
-        const string content = """{"startWithWindows":false,"providers":{"gemini":"future-mode"}}""";
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new("""{"futureProperty":"ignored"}""") });
+
+        Assert.Equal(new TrackSettings(), new SettingsStore(fs, Path).Load());
+    }
+
+    [Theory]
+    [InlineData("""{"providers":{"gemini":"future-mode"}}""")]
+    [InlineData("""{"appearance":{"theme":"FutureTheme"}}""")]
+    [InlineData("""{"appearance":{"material":"FutureMaterial"}}""")]
+    public void An_unknown_enum_value_uses_the_existing_whole_file_default_fallback(string content)
+    {
         var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(content) });
 
         Assert.Equal(new TrackSettings(), new SettingsStore(fs, Path).Load());

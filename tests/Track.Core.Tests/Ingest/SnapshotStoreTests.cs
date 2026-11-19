@@ -73,23 +73,30 @@ public class SnapshotStoreTests
     }
 
     [Fact]
-    public void A_legacy_v1_snapshot_loads_unchanged_and_ignores_unknown_properties()
+    public void The_v1_1_snapshot_serializer_fixture_loads_and_restores_identical_totals()
     {
-        const string legacy = """
-            {"version":1,"savedUtc":"2026-11-18T12:00:00Z",
-             "buckets":[{"tool":"Codex","model":"gpt-5.1","hourUtc":"2026-11-18T11:00:00Z","tokens":{"input":10,"cacheWrite":2,"cacheRead":3,"output":4,"reasoning":1,"calls":1}}],
-             "sessions":[{"tool":"Claude","sessionId":"session-a","usage":{"tokens":{"input":5,"cacheWrite":1,"cacheRead":2,"output":3,"reasoning":0,"calls":1},"firstUtc":"2026-11-18T11:00:00Z","lastUtc":"2026-11-18T12:00:00Z"}}],
-             "cursors":[],"futureProperty":"ignored"}
-            """;
-        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(legacy) });
+        var fixture = File.ReadAllText(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "snapshot-v1.1.0.json"));
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(fixture) });
 
         var loaded = new SnapshotStore(fs, Path).Load()!;
 
         Assert.Equal(1, loaded.Version);
-        Assert.Equal(new TokenCounts(10, 2, 3, 4, 1, 1), Assert.Single(loaded.Buckets).Tokens);
-        Assert.Equal("session-a", Assert.Single(loaded.Sessions).SessionId);
-        Assert.Equal(new TokenCounts(5, 1, 2, 3, 0, 1), loaded.Sessions[0].Usage.Tokens);
+        var usage = new UsageStore();
+        usage.Restore(loaded.Buckets, loaded.Sessions);
+        var restored = usage.Save();
+        Assert.Equal(new TokenCounts(10, 2, 3, 4, 1, 1), Assert.Single(restored.Buckets).Tokens);
+        Assert.Equal("session-a", Assert.Single(restored.Sessions).SessionId);
+        Assert.Equal(new TokenCounts(5, 1, 2, 3, 0, 1), restored.Sessions[0].Usage.Tokens);
         Assert.Empty(loaded.DocumentCursors);
+    }
+
+    [Fact]
+    public void Unknown_snapshot_properties_are_ignored()
+    {
+        const string content = """{"version":1,"savedUtc":"2026-11-18T12:00:00Z","buckets":[],"sessions":[],"cursors":[],"futureProperty":"ignored"}""";
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData> { [Path] = new(content) });
+
+        Assert.NotNull(new SnapshotStore(fs, Path).Load());
     }
 
     [Fact]

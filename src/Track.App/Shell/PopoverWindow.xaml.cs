@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Track.Core;
+using Track.Core.Settings;
 
 namespace Track.App.Shell;
 
@@ -51,6 +52,8 @@ public partial class PopoverWindow : Window
     /// <summary>Raised 150 ms after the pointer rests on a tool row (or at once on keyboard focus).</summary>
     public event Action<Tool, FrameworkElement>? RowHovered;
 
+    public event Action? SettingsRequested;
+
     /// <summary>Raised when the pointer or focus leaves a row, or the popover hides.</summary>
     public event Action? RowLeft;
 
@@ -59,10 +62,12 @@ public partial class PopoverWindow : Window
 
     public bool Dark { get; set; }
 
+    public WindowMaterial Material { get; set; } = WindowMaterial.Acrylic;
+
     public void ApplyBackdrop()
     {
-        var acrylic = Native.ApplyBackdrop(this, Dark);
-        Surface.Background = (Brush)FindResource(acrylic ? "PopBg" : "PopSolid");
+        var supported = Native.ApplyBackdrop(this, Dark, Material);
+        Surface.Background = (Brush)FindResource(supported ? "PopBg" : "PopSolid");
     }
 
     /// <summary>Opens above the tray, right edge near the pointer, inside the work area.</summary>
@@ -90,6 +95,12 @@ public partial class PopoverWindow : Window
         _pendingRow = (FrameworkElement)sender;
         _hoverDelay.Stop();
         _hoverDelay.Start();
+    }
+
+    private void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        SettingsRequested?.Invoke();
+        e.Handled = true;
     }
 
     private void Row_MouseLeave(object sender, MouseEventArgs e)

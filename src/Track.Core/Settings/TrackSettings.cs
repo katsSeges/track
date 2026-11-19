@@ -36,6 +36,66 @@ public enum ProviderMode
     Off,
 }
 
+public enum ThemeMode
+{
+    System,
+    Light,
+    Dark,
+}
+
+public enum WindowMaterial
+{
+    Acrylic,
+    Mica,
+    MicaAlt,
+    Solid,
+}
+
+public sealed record ProviderColorOverride(string Light, string Dark);
+
+public sealed record AppearanceSettings
+{
+    public ThemeMode Theme { get; init; } = ThemeMode.System;
+
+    public WindowMaterial Material { get; init; } = WindowMaterial.Acrylic;
+
+    public string AccentColor { get; init; } = "#0A66D8";
+
+    public Dictionary<Tool, ProviderColorOverride> ProviderColors { get; init; } = [];
+
+    public bool Equals(AppearanceSettings? other) =>
+        other is not null
+        && Theme == other.Theme
+        && Material == other.Material
+        && AccentColor == other.AccentColor
+        && ProviderColors.Count == other.ProviderColors.Count
+        && ProviderColors.All(pair => other.ProviderColors.TryGetValue(pair.Key, out var value) && pair.Value == value);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Theme);
+        hash.Add(Material);
+        hash.Add(AccentColor);
+        foreach (var pair in ProviderColors.OrderBy(pair => pair.Key))
+        {
+            hash.Add(pair.Key);
+            hash.Add(pair.Value);
+        }
+
+        return hash.ToHashCode();
+    }
+}
+
+public sealed record BehaviorSettings
+{
+    public bool NotificationsEnabled { get; init; }
+
+    public bool HotkeyEnabled { get; init; } = true;
+
+    public string HotkeyGesture { get; init; } = "Ctrl+Alt+Shift+T";
+}
+
 public sealed record ProviderSettings
 {
     public ProviderMode Claude { get; set; } = ProviderMode.Auto;
@@ -103,6 +163,10 @@ public sealed record TrackSettings
     public ProviderSettings Providers { get; set; } = new();
 
     public IslandSettings Island { get; set; } = new();
+
+    public AppearanceSettings Appearance { get; set; } = new();
+
+    public BehaviorSettings Behavior { get; set; } = new();
 
     /// <summary>The tray popover's Hide / Show chart toggle (user request 2026-11-18). False = chart shown.</summary>
     public bool PopoverChartHidden { get; set; }
