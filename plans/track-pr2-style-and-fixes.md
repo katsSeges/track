@@ -276,22 +276,40 @@ the gate is "no worse than 1.2.0 measured the same way, and the working set at o
   working set, the measured target, is unaffected. Worth a look in a later release.
 
 ## Phase 7: Deliver
-Status: Not started
+Status: Complete (merge waits for the user)
 
-- [ ] Update README (features, Settings/Analytics screenshot from render mode, fabricated data only) and `docs/DEVELOPMENT.md`, `docs/coverage-exclusions.md`
-- [ ] Commit in logical steps; push to the PR branch (`git push https://github.com/oliverseges/trackAI.git pr-2-style:oliverseges-providers-appearance-analytics`; maintainer edits are allowed)
-- [ ] Approve fork workflow runs if needed; CI `build-test` and `installer` green
-- [ ] Update the PR description (what changed on top, before/after links); merge PR #2 when the user says so
+- [x] Update README (features and tips; no new screenshot added) and `docs/DEVELOPMENT.md`, `docs/coverage-exclusions.md`
+- [x] Commit in logical steps; push to the PR branch (`git push https://github.com/oliverseges/trackAI.git pr-2-style:oliverseges-providers-appearance-analytics`; maintainer edits are allowed)
+- [x] Approve fork workflow runs if needed; CI `build-test` and `installer` green
+- [x] Update the PR description (what changed on top); merge PR #2 when the user says so (not merged)
 
 ### Verification Plan
 - `gh pr checks 2` → all pass
 - `gh pr view 2 --json mergeable` → `MERGEABLE`
 
 ### Phase Summary
-_(write when phase completes)_
+Done 2026-11-20. Commits on the PR branch: `675528e` (images out, notes, 1.3.0), `acb263c` (Phase 2 fixes; built and
+tested on its own: 726 tests), `96e88f2` (restyle, idle fixes, docs, plan). Pushed fast-forward to
+`oliverseges/trackAI:oliverseges-providers-appearance-analytics` (it was still at `29d4a15`). CI run 44631261046 on
+`96e88f2`: `build-test` and `installer` passed without needing approval. PR description has a "Maintainer changes on
+top" section. PR #2 is not merged and nothing is tagged.
 
 ## Final Recap
-_(write when all phases complete: summary of the entire piece of work)_
+PR #2 (providers, Settings, Analytics, alerts, hotkey) was reviewed and finished on top of the contributor's branch.
+Twelve correctness/cost/safety problems were fixed with tests (the worst: turning a provider Off and On counted its
+whole history twice; Gemini and OpenCode under-counted; one bad OpenCode row stopped every refresh). Settings and
+Analytics were rebuilt in the tray and island's design language from the design canvas
+(https://claude.ai/artifact/8gCGSPNgARArwiv9aTLniS): grouped rows, switches, segmented controls, color wells, one chart,
+one font, system blue and acrylic, full dark mode. Two more bugs were found while doing it (null settings sections,
+Analytics crash on range change) and one idle problem (window memory not returned). Track.Core is at 100 % with 759
+tests; the idle cost matches 1.2.0 measured side by side; the PR's CI passes.
 
 ## Deployment Plan
-_(write when all phases complete: step-by-step deployment instructions)_
+1. Merge PR #2 into `main` (merge commit, like PR #1): `gh pr merge 2 --repo katsSeges/track --merge`; then
+   `git checkout main; git pull`.
+2. Check CI on `main` (`build-test`, `installer`).
+3. Release 1.3.0 only when asked: `git tag -a v1.3.0 -m "Track 1.3.0"; git push origin v1.3.0`; the release workflow
+   builds, tests, packages and publishes the ZIP, Setup EXE and `.sha256` files with `docs/release-notes/v1.3.0.md`.
+4. Verify: `gh release view v1.3.0` lists four assets; download and compare both checksums.
+5. Afterwards, on a real machine: open Settings and Analytics once by hand in light and dark (render mode cannot show
+   the native acrylic or real mouse hover).
