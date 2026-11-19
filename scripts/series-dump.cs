@@ -12,7 +12,12 @@ var home = args[0];
 var cutoff = DateTimeOffset.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture);
 var fs = new FileSystem();
 var store = new UsageStore();
-new UsageIngestor(new LogScanner(fs, LogSources.Default(home)), new IncrementalLogReader(fs), store, TimeProvider.System).Refresh();
+new UsageIngestor(
+    new LogScanner(fs, LogSources.Default(home)),
+    new IncrementalLogReader(fs),
+    store,
+    TimeProvider.System,
+    documents: new DocumentLogReader(fs)).Refresh();
 var usage = new UsageAggregator(store);
 var series = new UsageSeries(store, usage, new PeriodCalculator(TimeProvider.System, TimeZoneInfo.Local), TimeProvider.System);
 var atCutoff = new FixedTime(cutoff); // compare "today vs yesterday" as of the cutoff, like the independent count

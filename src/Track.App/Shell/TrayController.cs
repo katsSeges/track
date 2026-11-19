@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using H.NotifyIcon;
 using Microsoft.Win32;
+using Track.App.Live;
 using Track.Core;
 using Track.Core.Activity;
 using Track.Core.Island;
@@ -15,6 +16,7 @@ using Track.Core.Display;
 using Track.Core.Ingest;
 using Track.Core.Live;
 using Track.Core.Pricing;
+using Track.Core.Providers;
 using Track.Core.Settings;
 using Track.Core.Tray;
 using Track.Core.Time;
@@ -121,17 +123,35 @@ public sealed class TrayController : IDisposable
 
         // TRACK_CLOCK_OFFSET (seconds, only with TRACK_DIAG=1) shifts the app's clock for rollover checks.
         var time = _time = ShiftedTimeProvider.For(TimeProvider.System, Environment.GetEnvironmentVariable("TRACK_CLOCK_OFFSET"), options.Diagnostics);
-        var scanner = new LogScanner(_fs, LogSources.Default(options.Home));
+        var scanner = new LogScanner(
+            _fs,
+            LogSources.Default(options.Home),
+            tool => _settings.Providers.ModeFor(tool) != ProviderMode.Off);
         var store = _store = new UsageStore();
-        _ingestor = new UsageIngestor(scanner, new IncrementalLogReader(_fs), store, time, new SnapshotStore(_fs, Path.Combine(options.DataDirectory, "snapshot.json")));
+        _ingestor = new UsageIngestor(
+            scanner,
+            new IncrementalLogReader(_fs),
+            store,
+            time,
+            new SnapshotStore(_fs, Path.Combine(options.DataDirectory, "snapshot.json")),
+            new DocumentLogReader(_fs));
         _usage = new UsageAggregator(store);
         _periods = new PeriodCalculator(time, TimeZoneInfo.Local);
-        _liveDetector = new LiveStatusDetector(_fs, scanner, Path.Combine(options.Home, ".copilot", "session-state"), new SystemProcessList(), _usage, time);
+        _liveDetector = new LiveStatusDetector(
+            _fs,
+            scanner,
+            Path.Combine(options.Home, ".copilot", "session-state"),
+            new SystemProcessList(),
+            _usage,
+            time,
+            new HttpOllamaStatusProbe(),
+            () => _settings.Providers.ModeFor(Tool.Ollama) != ProviderMode.Off);
         _prices = new PriceLoader(_fs, Path.Combine(options.DataDirectory, "prices.json"), new LiteLlmPriceDownloader(new HttpClient { Timeout = TimeSpan.FromSeconds(20) }), time);
         _vm = new PopoverViewModel(store, _usage, _periods, time, _settings);
         _vm.SettingsChanged += (_, changed) =>
         {
             _settings = changed;
+            _scanCache?.MarkDirty();
             if (_options.RenderPopoverTo is null && _options.RenderIslandTo is null)
             {
                 _settingsStore.Save(changed); // render-only runs never touch the user's settings
@@ -144,7 +164,11 @@ public sealed class TrayController : IDisposable
         _activity = new ActivityReader(_fs, scanner, new AgentActivityTracker());
         _scanCache = new LogScanCache(_fs, scanner, time);
         _trim = new DispatcherTimer(TimeSpan.FromMinutes(30), DispatcherPriority.Background, (_, _) => TrimMemory(), ui);
-        foreach (var root in LogSources.Default(options.Home).Select(s => s.Root).Where(Directory.Exists))
+        foreach (var root in LogSources.Default(options.Home)
+                     .Where(source => _settings.Providers.ModeFor(source.Tool) != ProviderMode.Off)
+                     .Select(s => s.Root)
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .Where(Directory.Exists))
         {
             // A new log file (new session) triggers a full scan at the next live check instead of within a minute.
             var watcher = new FileSystemWatcher(root) { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName };
@@ -155,7 +179,7 @@ public sealed class TrayController : IDisposable
         }
         _island = new IslandStateMachine(time, () => _settings.Island);
         // The Usage tab lists the same tools as the popover (the visibility rule), so both show the same numbers.
-        _islandVm = new IslandViewModel(_island, store, _usage, _periods, time, () => _settings.Island, () => _vm.ListedTools);
+        _islandVm = new IslandViewModel(_island, store, _usage, _periods, time, () => _settings.Island, () => _vm.ListedTools, () => _vm.LiveRows);
         _islandVm.TabChanged += (_, tab) => _settingsStore.Save(_settings = _settings with { Island = _settings.Island with { OpenTab = tab } });
         _pointer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Background, (_, _) => OnPointerTick(), ui) { IsEnabled = false };
 
@@ -262,12 +286,15 @@ public sealed class TrayController : IDisposable
     public static void RenderIcons(string directory, TrackSettings settings)
     {
         Directory.CreateDirectory(directory);
-        var all = new HashSet<Tool> { Tool.Claude, Tool.Codex, Tool.Copilot };
-        var states = new (string Name, Tool[] Running)[]
+        var all = ProviderCatalog.Order.ToHashSet();
+        var states = new List<(string Name, Tool[] Running)>
         {
-            ("nothing", []), ("claude", [Tool.Claude]), ("codex", [Tool.Codex]), ("copilot", [Tool.Copilot]),
-            ("claude+copilot", [Tool.Claude, Tool.Copilot]), ("all", [Tool.Claude, Tool.Codex, Tool.Copilot]),
+            ("nothing", []),
+            ("two", [Tool.Claude, Tool.Ollama]),
+            ("all", ProviderCatalog.Order.ToArray()),
+            ("overflow-running", [Tool.Gemini, Tool.Cline, Tool.Roo, Tool.Ollama]),
         };
+        states.AddRange(ProviderCatalog.Order.Select(tool => (tool.ToString().ToLowerInvariant(), new[] { tool })));
         foreach (var (name, running) in states)
         {
             foreach (var theme in Enum.GetValues<TaskbarTheme>())
@@ -672,7 +699,7 @@ public sealed class TrayController : IDisposable
 
         var clock = new ManualClock(DateTimeOffset.UtcNow);
         var machine = new IslandStateMachine(clock, () => _settings.Island);
-        var vm = new IslandViewModel(machine, _store, _usage, _periods, clock, () => _settings.Island, () => _vm.ListedTools);
+        var vm = new IslandViewModel(machine, _store, _usage, _periods, clock, () => _settings.Island, () => _vm.ListedTools, () => _vm.LiveRows);
         var window = new IslandWindow { Left = -4000, Top = 0 };
         var claude = new AgentActivity(Tool.Claude, "demo-claude", clock.Now.AddSeconds(-754), clock.Now.AddMinutes(-60), "claude-opus-5-5");
         // Round 6 demo: sub-agents under Claude Code (one nested, one done) and one under Copilot.

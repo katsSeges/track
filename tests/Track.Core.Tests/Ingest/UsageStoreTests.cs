@@ -75,6 +75,40 @@ public class UsageStoreTests
     }
 
     [Fact]
+    public void Replacing_one_document_keeps_shared_buckets_and_exposes_document_contributions()
+    {
+        var store = new UsageStore();
+        var first = Record(Lines.Now) with { DedupeKey = "first" };
+        var second = Record(Lines.Now) with { DedupeKey = "second" };
+        store.ReplaceDocumentContribution("first.json", [first]);
+        store.ReplaceDocumentContribution("second.json", [second]);
+
+        Assert.Equal(2, store.DocumentContributions.Count);
+        Assert.Equal(2, store.Buckets.Values.Single().Calls);
+
+        store.ReplaceDocumentContribution("first.json", []);
+
+        Assert.Equal(1, store.Buckets.Values.Single().Calls);
+        Assert.Equal(["first.json", "second.json"], store.DocumentContributions.Keys.OrderBy(path => path));
+    }
+
+    [Fact]
+    public void Replacing_restored_document_metadata_without_totals_is_safe()
+    {
+        var store = new UsageStore();
+        var old = Record(Lines.Now) with { DedupeKey = "old" };
+        var replacement = old with { DedupeKey = "replacement", Output = 20 };
+        store.RestoreDocumentContributions([
+            new DocumentCursor("file.json", Tool.Claude, old.SessionId, "old-fingerprint", Lines.Now, 1, [old]),
+        ]);
+
+        store.ReplaceDocumentContribution("file.json", [replacement]);
+
+        Assert.Equal(20, store.Buckets.Values.Single().Output);
+        Assert.Equal("replacement", Assert.Single(store.DocumentContributions["file.json"]).DedupeKey);
+    }
+
+    [Fact]
     public void Token_counts_add_up_and_total_excludes_reasoning_and_calls()
     {
         var sum = new TokenCounts(1, 2, 3, 4, 5, 6) + new TokenCounts(10, 20, 30, 40, 50, 60);

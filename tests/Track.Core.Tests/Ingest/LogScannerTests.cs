@@ -26,7 +26,8 @@ public class LogScannerTests
                 (Tool.Codex, @"C:\home\.codex\archived_sessions", "rollout-*.jsonl", SessionIdFrom.FileName),
                 (Tool.Copilot, @"C:\home\.copilot\session-state", "events.jsonl", SessionIdFrom.ParentFolder),
             ],
-            sources.Select(s => (s.Tool, s.Root, s.Pattern, s.SessionFrom)));
+            sources.Take(5).Select(s => (s.Tool, s.Root, s.Pattern, s.SessionFrom)));
+        Assert.Equal(13, sources.Count);
     }
 
     [Fact]
@@ -55,6 +56,46 @@ public class LogScannerTests
                 (Tool.Copilot, "sess-9"),
             ],
             files.Select(f => (f.Tool, f.SessionId)).OrderBy(x => x.Tool).ThenBy(x => x.SessionId == "agent-1"));
+    }
+
+    [Fact]
+    public void Document_sources_keep_their_read_modes_and_session_folder_ids()
+    {
+        var sources = new[]
+        {
+            new LogSource(Tool.Gemini, @"C:\home\.gemini\tmp", "session-*.jsonl", SessionIdFrom.FileName, LogReadMode.GeminiJsonLines),
+            new LogSource(Tool.Cline, @"C:\home\Code\User\globalStorage\cline\tasks", "ui_messages.json", SessionIdFrom.ParentFolder, LogReadMode.JsonDocument),
+        };
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [@"C:\home\.gemini\tmp\session-a.jsonl"] = Recent(),
+            [@"C:\home\Code\User\globalStorage\cline\tasks\task-1\ui_messages.json"] = Recent(),
+        });
+
+        var files = new LogScanner(fs, sources).Scan(Since);
+
+        Assert.Equal(
+            [
+                (Tool.Gemini, "session-a", LogReadMode.GeminiJsonLines),
+                (Tool.Cline, "task-1", LogReadMode.JsonDocument),
+            ],
+            files.Select(file => (file.Tool, file.SessionId, file.Mode)).OrderBy(file => file.Item1));
+    }
+
+    [Fact]
+    public void Disabled_providers_are_not_scanned()
+    {
+        var fs = new MockFileSystem(new Dictionary<string, MockFileData>
+        {
+            [@"C:\home\.claude\projects\p\claude.jsonl"] = Recent(),
+            [@"C:\home\.gemini\tmp\session-a.jsonl"] = Recent(),
+        });
+        var scanner = new LogScanner(fs, LogSources.Default(Home), tool => tool != Tool.Gemini);
+
+        var files = scanner.Scan(Since);
+
+        Assert.Contains(files, file => file.Tool == Tool.Claude);
+        Assert.DoesNotContain(files, file => file.Tool == Tool.Gemini);
     }
 
     [Fact]

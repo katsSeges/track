@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Track.Core;
 using Track.Core.Display;
+using Track.Core.Providers;
 
 namespace Track.App.Shell;
 
@@ -29,7 +30,7 @@ public sealed class UsageChart : FrameworkElement
         nameof(BarsHeight), typeof(double), typeof(UsageChart), new FrameworkPropertyMetadata(64.0, FrameworkPropertyMetadataOptions.AffectsMeasure));
 
     private const double AxisHeight = 13;
-    private static readonly Dictionary<Tool, string> BrushKeys = new() { [Tool.Claude] = "Claude", [Tool.Codex] = "Codex", [Tool.Copilot] = "Copilot" };
+    private static readonly Dictionary<Tool, string> BrushKeys = ProviderCatalog.Order.ToDictionary(tool => tool, tool => tool.ToString());
 
     // Always above the chart, starting at the bar: placed at the mouse, a tooltip near the screen edge (the popover
     // sits at the right edge) was pushed left over other bars and swallowed the next click (real-mouse check 2026-11-18).

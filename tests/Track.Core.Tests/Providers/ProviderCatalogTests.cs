@@ -21,10 +21,10 @@ public class ProviderCatalogTests
     [InlineData(Tool.Claude, "Claude Code", "claude", "#D97757", "#E08560", true)]
     [InlineData(Tool.Codex, "Codex", "codex", "#2B2B2E", "#E4E4EA", true)]
     [InlineData(Tool.Copilot, "Copilot", "copilot", "#7A4FD6", "#A98BFF", true)]
-    [InlineData(Tool.Gemini, "Gemini CLI", "gemini", "#4285F4", "#8AB4F8", false)]
-    [InlineData(Tool.OpenCode, "OpenCode", "opencode", "#2D6A4F", "#6FCF97", false)]
-    [InlineData(Tool.Cline, "Cline", "cline", "#0B8F87", "#55DAD0", false)]
-    [InlineData(Tool.Roo, "Roo Code", "roo", "#A74BC8", "#D38AE8", false)]
+    [InlineData(Tool.Gemini, "Gemini CLI", "gemini", "#4285F4", "#8AB4F8", true)]
+    [InlineData(Tool.OpenCode, "OpenCode", "opencode", "#2D6A4F", "#6FCF97", true)]
+    [InlineData(Tool.Cline, "Cline", "cline", "#0B8F87", "#55DAD0", true)]
+    [InlineData(Tool.Roo, "Roo Code", "roo", "#A74BC8", "#D38AE8", true)]
     [InlineData(Tool.Ollama, "Ollama", "ollama", "#454545", "#E4E4EA", false)]
     public void Catalog_has_display_color_and_capability_metadata(
         Tool tool,
@@ -38,7 +38,7 @@ public class ProviderCatalogTests
 
         Assert.Equal((name, logoKey, true, hasTokens), (provider.Name, provider.LogoKey, provider.Capabilities.HasActivity, provider.Capabilities.HasTokens));
         Assert.Equal((light, dark), (provider.Colors.For(TaskbarTheme.Light), provider.Colors.For(TaskbarTheme.Dark)));
-        Assert.Contains(provider.ProcessNames, process => !string.IsNullOrWhiteSpace(process));
+        Assert.All(provider.ProcessNames, process => Assert.False(string.IsNullOrWhiteSpace(process)));
     }
 
     [Fact]
@@ -48,17 +48,67 @@ public class ProviderCatalogTests
 
         var sources = ProviderCatalog.LogSources(home);
 
-        Assert.Collection(sources,
+        Assert.Equal(13, sources.Count);
+        Assert.Collection(sources.Take(5),
             s => Assert.Equal((Tool.Claude, Path.Combine(home, ".claude", "projects"), "*.jsonl", SessionIdFrom.FileName), (s.Tool, s.Root, s.Pattern, s.SessionFrom)),
             s => Assert.Equal((Tool.Claude, Path.Combine(home, ".config", "claude", "projects"), "*.jsonl", SessionIdFrom.FileName), (s.Tool, s.Root, s.Pattern, s.SessionFrom)),
             s => Assert.Equal((Tool.Codex, Path.Combine(home, ".codex", "sessions"), "rollout-*.jsonl", SessionIdFrom.FileName), (s.Tool, s.Root, s.Pattern, s.SessionFrom)),
             s => Assert.Equal((Tool.Codex, Path.Combine(home, ".codex", "archived_sessions"), "rollout-*.jsonl", SessionIdFrom.FileName), (s.Tool, s.Root, s.Pattern, s.SessionFrom)),
             s => Assert.Equal((Tool.Copilot, Path.Combine(home, ".copilot", "session-state"), "events.jsonl", SessionIdFrom.ParentFolder), (s.Tool, s.Root, s.Pattern, s.SessionFrom)));
-        Assert.Empty(ProviderCatalog.Get(Tool.Gemini).Sources(home));
-        Assert.Empty(ProviderCatalog.Get(Tool.OpenCode).Sources(home));
-        Assert.Empty(ProviderCatalog.Get(Tool.Cline).Sources(home));
-        Assert.Empty(ProviderCatalog.Get(Tool.Roo).Sources(home));
+        var gemini = Assert.Single(ProviderCatalog.Get(Tool.Gemini).Sources(home));
+        Assert.Equal((Tool.Gemini, Path.Combine(home, ".gemini", "tmp"), "session-*.jsonl", SessionIdFrom.FileName, LogReadMode.GeminiJsonLines),
+            (gemini.Tool, gemini.Root, gemini.Pattern, gemini.SessionFrom, gemini.Mode));
+
+        var opencode = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(home));
+        Assert.Equal((Tool.OpenCode, SessionIdFrom.FileName, LogReadMode.OpenCodeDatabase),
+            (opencode.Tool, opencode.SessionFrom, opencode.Mode));
+        Assert.NotEmpty(opencode.Root);
+
+        Assert.Equal(3, ProviderCatalog.Get(Tool.Cline).Sources(home).Count);
+        Assert.Equal(3, ProviderCatalog.Get(Tool.Roo).Sources(home).Count);
+        Assert.All(ProviderCatalog.Get(Tool.Cline).Sources(home), source =>
+            Assert.Equal((Tool.Cline, "ui_messages.json", SessionIdFrom.ParentFolder, LogReadMode.JsonDocument),
+                (source.Tool, source.Pattern, source.SessionFrom, source.Mode)));
+        Assert.All(ProviderCatalog.Get(Tool.Roo).Sources(home), source =>
+            Assert.Equal((Tool.Roo, "ui_messages.json", SessionIdFrom.ParentFolder, LogReadMode.JsonDocument),
+                (source.Tool, source.Pattern, source.SessionFrom, source.Mode)));
         Assert.Empty(ProviderCatalog.Get(Tool.Ollama).Sources(home));
+    }
+
+    [Fact]
+    public void OpenCode_database_configuration_resolves_default_relative_absolute_and_memory_paths()
+    {
+        var oldXdgDataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        var oldDatabase = Environment.GetEnvironmentVariable("OPENCODE_DB");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_DATA_HOME", null);
+            Environment.SetEnvironmentVariable("OPENCODE_DB", null);
+            var defaultSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
+            Assert.Equal((Path.Combine(@"C:\home", ".local", "share", "opencode"), "opencode*.db*"),
+                (defaultSource.Root, defaultSource.Pattern));
+
+            Environment.SetEnvironmentVariable("XDG_DATA_HOME", @"C:\home\data");
+            Environment.SetEnvironmentVariable("OPENCODE_DB", " ");
+            var xdgSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
+            Assert.Equal((Path.Combine(@"C:\home\data", "opencode"), "opencode*.db*"), (xdgSource.Root, xdgSource.Pattern));
+
+            Environment.SetEnvironmentVariable("OPENCODE_DB", "custom.db");
+            var relativeSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
+            Assert.Equal((Path.Combine(@"C:\home\data", "opencode"), "custom.db*"), (relativeSource.Root, relativeSource.Pattern));
+
+            Environment.SetEnvironmentVariable("OPENCODE_DB", @"C:\custom\opencode.db");
+            var absoluteSource = Assert.Single(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
+            Assert.Equal((@"C:\custom", "opencode.db*"), (absoluteSource.Root, absoluteSource.Pattern));
+
+            Environment.SetEnvironmentVariable("OPENCODE_DB", ":memory:");
+            Assert.Empty(ProviderCatalog.Get(Tool.OpenCode).Sources(@"C:\home"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_DATA_HOME", oldXdgDataHome);
+            Environment.SetEnvironmentVariable("OPENCODE_DB", oldDatabase);
+        }
     }
 
     [Fact]

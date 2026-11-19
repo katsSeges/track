@@ -148,7 +148,57 @@ public class PopoverViewModelTests
 
         Assert.Empty(vm.Rows);
         Assert.Empty(vm.LiveRows);
-        Assert.Equal("No Claude Code, Codex or Copilot usage in the last 30 days.", vm.EmptyText);
+        Assert.Equal("No provider usage in the last 30 days.", vm.EmptyText);
+    }
+
+    [Fact]
+    public void Status_only_ollama_is_live_but_never_shows_token_rows_or_chart_segments()
+    {
+        var settings = new TrackSettings
+        {
+            Providers = new ProviderSettings().WithMode(Tool.Ollama, ProviderMode.On),
+        };
+        var vm = Create(settings);
+        vm.LiveUpdated(Live(Tool.Ollama, working: false, sessions: 0, model: "llama3.2:latest"));
+
+        Assert.Empty(vm.Rows);
+        Assert.Empty(vm.ListedUsageTools);
+        Assert.Equal([Tool.Ollama], vm.ListedTools);
+        Assert.Equal("running · llama3.2:latest", Assert.Single(vm.LiveRows).Detail);
+        Assert.True(vm.LiveRows[0].Working);
+        Assert.All(vm.Chart!.Bars, bar => Assert.Empty(bar.Segments));
+    }
+
+    [Fact]
+    public void Ollama_live_detail_handles_idle_and_running_without_a_loaded_model()
+    {
+        var settings = new TrackSettings
+        {
+            Providers = new ProviderSettings().WithMode(Tool.Ollama, ProviderMode.On),
+        };
+        var vm = Create(settings);
+
+        vm.LiveUpdated(new Dictionary<Tool, LiveStatus> { [Tool.Ollama] = new(Tool.Ollama, false, 0, 0, false, null, Now) });
+        Assert.Equal("idle", Assert.Single(vm.LiveRows).Detail);
+
+        vm.LiveUpdated(new Dictionary<Tool, LiveStatus> { [Tool.Ollama] = new(Tool.Ollama, false, 0, 0, true, null, Now) });
+        Assert.Equal("running", Assert.Single(vm.LiveRows).Detail);
+    }
+
+    [Fact]
+    public void More_than_four_visible_providers_enable_compact_rows()
+    {
+        var providers = new ProviderSettings();
+        foreach (var tool in new[] { Tool.Claude, Tool.Codex, Tool.Copilot, Tool.Gemini, Tool.OpenCode })
+        {
+            providers = providers.WithMode(tool, ProviderMode.On);
+        }
+
+        var vm = Create(new TrackSettings { Providers = providers });
+        vm.UsageRefreshed();
+
+        Assert.True(vm.CompactRows);
+        Assert.Equal(5, vm.ListedTools.Count);
     }
 
     [Fact]

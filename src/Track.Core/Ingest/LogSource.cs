@@ -2,9 +2,22 @@ using Track.Core.Providers;
 
 namespace Track.Core.Ingest;
 
-/// <summary>One folder of agent logs: where to look, which files, and how to name the session.</summary>
+/// <summary>One folder of agent data: where to look, which files, how to name the session, and how to read them.</summary>
 /// <param name="SessionFrom">How a file path becomes the session id the parser falls back to.</param>
-public sealed record LogSource(Tool Tool, string Root, string Pattern, SessionIdFrom SessionFrom);
+public sealed record LogSource(
+    Tool Tool,
+    string Root,
+    string Pattern,
+    SessionIdFrom SessionFrom,
+    LogReadMode Mode = LogReadMode.Lines);
+
+public enum LogReadMode
+{
+    Lines,
+    GeminiJsonLines,
+    JsonDocument,
+    OpenCodeDatabase,
+}
 
 public enum SessionIdFrom
 {
@@ -16,7 +29,12 @@ public enum SessionIdFrom
 }
 
 /// <summary>A log file found by the scanner, with when it was last written.</summary>
-public sealed record LogFile(Tool Tool, string Path, string SessionId, DateTimeOffset LastWriteUtc = default);
+public sealed record LogFile(
+    Tool Tool,
+    string Path,
+    string SessionId,
+    DateTimeOffset LastWriteUtc = default,
+    LogReadMode Mode = LogReadMode.Lines);
 
 public static class LogSources
 {

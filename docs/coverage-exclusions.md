@@ -20,6 +20,7 @@ reason is visible in the code too.
 | `src/Track.App/Shell/UsageChart.cs` | Draws the usage chart (bars, top line, axis), hover tooltip, click / keyboard selection | WPF drawing; the chart model, its geometry and every text are tested in `ChartViewModel` / `UsagePanelBuilder` | `--render-popover` images; real-mouse hover and click checks |
 | `src/Track.App/Shell/IslandWindow.cs` | Draws the top island (Now and Usage tabs, sub-agent rows and dots), slide animation, focus only while opened | WPF view; state and content come from the tested `IslandStateMachine` / `IslandViewModel` | `--render-island` images (incl. Usage tab per period and sub-agents); `diag.txt` `subagent:` lines from a live fake home; `TRACK_POINTER_FILE` runs driving reveal, click, full-screen and the `island:` tab/period/bar commands |
 | `src/Track.App/Shell/Native.cs` | DWM backdrop, tool-window style, no-activate toggle, cursor, DPI, monitor work area, full-screen query, theme registry, HKCU Run key | Windows API wrappers, a few lines each | Running the app; Run key read back with `Get-ItemProperty` |
+| `src/Track.App/Live/HttpOllamaStatusProbe.cs` | Queries the opt-in Ollama loopback status endpoint | HTTP adapter only; loopback gating and status decisions are covered in Track.Core | Core probe-gating and status tests |
 
 Process detection is not in this list: the real `SystemProcessList` lives in Track.Core and is tested
 against the test process itself.

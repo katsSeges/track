@@ -15,4 +15,9 @@
     <SolidColorBrush x:Key="Claude" Color="#E08560" />
     <SolidColorBrush x:Key="Codex" Color="#E4E4EA" />
     <SolidColorBrush x:Key="Copilot" Color="#A98BFF" />
+    <SolidColorBrush x:Key="Gemini" Color="#8AB4F8" />
+    <SolidColorBrush x:Key="OpenCode" Color="#6FCF97" />
+    <SolidColorBrush x:Key="Cline" Color="#55DAD0" />
+    <SolidColorBrush x:Key="Roo" Color="#D38AE8" />
+    <SolidColorBrush x:Key="Ollama" Color="#E4E4EA" />
 </ResourceDictionary>

@@ -3,14 +3,15 @@ namespace Track.Core.Ingest;
 /// <summary>
 /// One refresh: find recent log files, read what is new in them, keep the store inside the retention
 /// window. With a <see cref="SnapshotStore"/>, the first refresh continues from the saved snapshot and
-/// later refreshes save a new one (at most once per <see cref="SaveInterval"/>) when usage was added.
+/// later refreshes save a new one (at most once per <see cref="SaveInterval"/>) when usage changes.
 /// </summary>
 public sealed class UsageIngestor(
     LogScanner scanner,
     IncrementalLogReader reader,
     UsageStore store,
     TimeProvider time,
-    SnapshotStore? snapshots = null)
+    SnapshotStore? snapshots = null,
+    DocumentLogReader? documents = null)
 {
     public static readonly TimeSpan SaveInterval = TimeSpan.FromMinutes(1);
 
@@ -39,16 +40,34 @@ public sealed class UsageIngestor(
         var files = scanner.Scan(keepFrom);
 
         var added = 0;
-        foreach (var file in files)
+        var documentChanged = false;
+        foreach (var file in files.Where(file => file.Mode == LogReadMode.Lines))
         {
             added += store.Add(reader.ReadNew(file));
         }
 
-        var current = files.Select(f => f.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (documents is not null)
+        {
+            foreach (var file in files.Where(file => file.Mode != LogReadMode.Lines))
+            {
+                if (documents.ReadChanged(file, keepFrom) is { } changed)
+                {
+                    documentChanged = true;
+                    added += store.ReplaceDocumentContribution(changed.Path, changed.Records);
+                }
+            }
+
+            documents.Prune(keepFrom);
+        }
+
+        var current = files
+            .Where(file => file.Mode == LogReadMode.Lines)
+            .Select(file => file.Path)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         reader.Forget(reader.TrackedPaths.Where(p => !current.Contains(p)).ToList());
         store.Prune(keepFrom, now - SessionRetention);
 
-        if (added > 0 && now - _lastSave >= SaveInterval)
+        if ((added > 0 || documentChanged) && now - _lastSave >= SaveInterval)
         {
             SaveSnapshot();
         }
@@ -66,7 +85,10 @@ public sealed class UsageIngestor(
 
         _lastSave = time.GetUtcNow();
         var (buckets, sessions) = store.Save();
-        return snapshots.Save(new Snapshot(SnapshotStore.CurrentVersion, _lastSave, buckets, sessions, reader.SaveCursors()));
+        return snapshots.Save(new Snapshot(SnapshotStore.CurrentVersion, _lastSave, buckets, sessions, reader.SaveCursors())
+        {
+            DocumentCursors = documents?.SaveCursors() ?? [],
+        });
     }
 
     private void Restore()
@@ -78,6 +100,8 @@ public sealed class UsageIngestor(
 
         store.Restore(snapshot.Buckets, snapshot.Sessions);
         reader.RestoreCursors(snapshot.Cursors);
+        store.RestoreDocumentContributions(snapshot.DocumentCursors);
+        documents?.RestoreCursors(snapshot.DocumentCursors);
         _lastSave = snapshot.SavedUtc;
         RestoredFromSnapshot = true;
     }

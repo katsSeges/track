@@ -14,6 +14,46 @@
         <BooleanToVisibilityConverter x:Key="Visible" />
         <shell:NullToCollapsedConverter x:Key="NotNull" />
         <shell:PeriodConverter x:Key="IsPeriod" />
+        <Style x:Key="LiveProviderRow" TargetType="Border" BasedOn="{StaticResource HoverRow}">
+            <Setter Property="Padding" Value="4,3" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.CompactRows, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Padding" Value="3,1" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="UsageProviderRow" TargetType="Border" BasedOn="{StaticResource HoverRow}">
+            <Setter Property="Padding" Value="4,6" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.CompactRows, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="Padding" Value="3,3" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ProviderNameText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12.5" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.CompactRows, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="FontSize" Value="11.5" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ProviderTokenText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.CompactRows, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="FontSize" Value="12" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ProviderSubText" TargetType="TextBlock" BasedOn="{StaticResource MonoSmall}">
+            <Setter Property="FontSize" Value="10.5" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.CompactRows, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                    <Setter Property="FontSize" Value="9.5" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Border x:Name="Surface" Background="{DynamicResource PopBg}" CornerRadius="12" Padding="10">
@@ -30,7 +70,7 @@
                 <ItemsControl ItemsSource="{Binding LiveRows}" Focusable="False">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border Style="{StaticResource HoverRow}" Padding="4,3" Tag="{Binding Tool}"
+                            <Border Style="{StaticResource LiveProviderRow}" Tag="{Binding Tool}"
                                     MouseEnter="Row_MouseEnter" MouseLeave="Row_MouseLeave" GotKeyboardFocus="Row_GotFocus" LostKeyboardFocus="Row_LostFocus">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -40,7 +80,7 @@
                                     </Grid.ColumnDefinitions>
                                     <shell:LogoIcon Key="{Binding LogoKey}" Active="{Binding Working}" Width="14" Height="14" Margin="0,0,8,0" />
                                     <!-- The detail gives way (trimmed) before the name or the running pill do. -->
-                                    <TextBlock Grid.Column="2" Text="{Binding Detail}" Style="{StaticResource MonoSmall}" FontSize="10.5" VerticalAlignment="Center"
+                                    <TextBlock Grid.Column="2" Text="{Binding Detail}" Style="{StaticResource ProviderSubText}" VerticalAlignment="Center"
                                                HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" Margin="8,0,0,0" ToolTip="{Binding Detail}" />
                                     <StackPanel Grid.Column="1" Orientation="Horizontal">
                                         <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center">
@@ -129,7 +169,7 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0">
-                            <Border Style="{StaticResource HoverRow}" Padding="4,6" Margin="0,1,0,0" Tag="{Binding Tool}"
+                            <Border Style="{StaticResource UsageProviderRow}" Margin="0,1,0,0" Tag="{Binding Tool}"
                                     MouseEnter="Row_MouseEnter" MouseLeave="Row_MouseLeave" GotKeyboardFocus="Row_GotFocus" LostKeyboardFocus="Row_LostFocus">
                                 <!-- Line 1: logo name … big tokens. Line 2: price · in · out · cache. Line 3: usage bar. -->
                                 <Grid>
@@ -145,10 +185,10 @@
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                         <shell:LogoIcon Key="{Binding LogoKey}" Width="14" Height="14" Margin="0,0,7,0"
                                                         Visibility="{Binding DataContext.RowLogos, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource Visible}}" />
-                                        <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="Medium" />
+                                        <TextBlock Text="{Binding Name}" Style="{StaticResource ProviderNameText}" FontWeight="Medium" />
                                     </StackPanel>
-                                    <TextBlock Grid.Column="1" Text="{Binding TokenText}" FontFamily="{StaticResource Mono}" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Right" />
-                                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SubText}" Style="{StaticResource MonoSmall}" HorizontalAlignment="Right" Margin="0,2,0,0" />
+                                    <TextBlock Grid.Column="1" Text="{Binding TokenText}" FontFamily="{StaticResource Mono}" Style="{StaticResource ProviderTokenText}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding SubText}" Style="{StaticResource ProviderSubText}" HorizontalAlignment="Right" Margin="0,2,0,0" />
                                     <shell:BarFill Grid.Row="2" Grid.ColumnSpan="2" Fraction="{Binding BarFraction}" Key="{Binding LogoKey}" Height="3" Margin="0,5,0,0" />
                                 </Grid>
                             </Border>

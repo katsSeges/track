@@ -23,14 +23,19 @@ public class LiveStatusDetectorTests
     private void Log(string path, TimeSpan age) =>
         _fs.AddFile(path, new MockFileData("") { LastWriteTime = (Now - age).UtcDateTime });
 
-    private IReadOnlyDictionary<Tool, LiveStatus> Detect(IFileSystem? holdFs = null) =>
+    private IReadOnlyDictionary<Tool, LiveStatus> Detect(
+        IFileSystem? holdFs = null,
+        IOllamaStatusProbe? ollamaProbe = null,
+        Func<bool>? ollamaEnabled = null) =>
         new LiveStatusDetector(
             holdFs ?? _fs,
             new LogScanner(_fs, LogSources.Default(Home)),
             CopilotRoot,
             _processes,
             new UsageAggregator(_store),
-            new FakeTimeProvider(Now)).Detect();
+            new FakeTimeProvider(Now),
+            ollamaProbe,
+            ollamaEnabled).Detect();
 
     [Fact]
     public void A_tool_is_working_when_its_log_was_written_in_the_last_two_minutes()
@@ -68,6 +73,56 @@ public class LiveStatusDetectorTests
         Assert.Equal("gpt-5.6-luna", live[Tool.Codex].LastModel);
         Assert.Null(live[Tool.Claude].LastModel);
         Assert.Equal(["copilot-runtime", "copilotapp_proxy", "copilot"], LiveStatusDetector.ProcessNames[Tool.Copilot]);
+    }
+
+    [Fact]
+    public void Ollama_probe_is_not_called_when_the_provider_is_disabled()
+    {
+        var probe = Substitute.For<IOllamaStatusProbe>();
+
+        var status = Detect(ollamaProbe: probe, ollamaEnabled: () => false)[Tool.Ollama];
+
+        Assert.False(status.ProcessRunning);
+        Assert.Null(status.LastModel);
+        probe.DidNotReceive().Probe();
+    }
+
+    [Fact]
+    public void Ollama_probe_is_not_called_without_an_enablement_policy()
+    {
+        var probe = Substitute.For<IOllamaStatusProbe>();
+
+        var status = Detect(ollamaProbe: probe)[Tool.Ollama];
+
+        Assert.False(status.ProcessRunning);
+        Assert.Null(status.LastModel);
+        probe.DidNotReceive().Probe();
+    }
+
+    [Fact]
+    public void Enabled_ollama_reports_the_loaded_model_from_the_loopback_probe()
+    {
+        var probe = Substitute.For<IOllamaStatusProbe>();
+        probe.Probe().Returns(new OllamaStatus(true, "llama3.2:latest"));
+
+        var status = Detect(ollamaProbe: probe, ollamaEnabled: () => true)[Tool.Ollama];
+
+        Assert.True(status.ProcessRunning);
+        Assert.Equal("llama3.2:latest", status.LastModel);
+        probe.Received(1).Probe();
+    }
+
+    [Fact]
+    public void Enabled_ollama_probe_down_state_overrides_a_running_cli_process()
+    {
+        var probe = Substitute.For<IOllamaStatusProbe>();
+        probe.Probe().Returns(new OllamaStatus(false, null));
+        _processes.AnyRunning(Arg.Is<IReadOnlyCollection<string>>(names => names.Contains("ollama"))).Returns(true);
+
+        var status = Detect(ollamaProbe: probe, ollamaEnabled: () => true)[Tool.Ollama];
+
+        Assert.False(status.ProcessRunning);
+        Assert.Null(status.LastModel);
     }
 
     [Fact]

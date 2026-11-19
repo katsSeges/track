@@ -36,13 +36,13 @@ public sealed record IconShape(ShapeKind Kind, Tool? Tool, double X, double Y, d
 public sealed record TrayIconSpec(IReadOnlyList<IconShape> Shapes, string Tooltip, string CacheKey);
 
 /// <summary>
-/// The tray icon as data (rounds 2–3): the Claude, Codex and Copilot logos as three dots. Only tools
-/// that earned a tray spot are drawn; running ones in their color, idle ones grey (or as a dot/ring).
-/// Geometry matches <c>design/track-mockup-v2.html</c> and <c>-v3.html</c>.
+/// The tray icon as data (rounds 2–3): provider marks share three slots. When more than three providers
+/// qualify, running providers take priority and the remaining marks follow catalog order.
 /// </summary>
 public static class TrayIconModel
 {
     public const double IdleOpacity = 0.38;
+    public const int MaximumMarks = 3;
 
     private static readonly Tool[] Order = ProviderCatalog.Order.ToArray();
 
@@ -68,17 +68,26 @@ public static class TrayIconModel
     {
         // "Running only" shows just the running tools; with none running it falls back to the nothing-running look.
         var shown = Order.Where(inTray.Contains).ToList();
-        var anyRunning = shown.Any(running.Contains);
+        var visibleRunning = shown.Where(running.Contains).ToHashSet();
+        var anyRunning = visibleRunning.Count > 0;
         if (layout == IconLayout.RunningOnly && anyRunning)
         {
-            shown = shown.Where(running.Contains).ToList();
+            shown = shown.Where(visibleRunning.Contains).ToList();
+        }
+
+        if (shown.Count > MaximumMarks)
+        {
+            shown = shown
+                .OrderByDescending(visibleRunning.Contains)
+                .Take(MaximumMarks)
+                .ToList();
         }
 
         var shapes = shown.Count == 0 || (!anyRunning && nothingRunning == NothingRunningLook.TrackMark)
             ? [new IconShape(ShapeKind.TrackBars, null, 8, 8, 12, Ink(theme), 0.55)]
             : Place(shown, layout).Select(p => Shape(p.Tool, p.Slot, running.Contains(p.Tool), idleLook, theme)).ToList();
 
-        var names = Order.Where(running.Contains).Select(ToolNames.Display).ToList();
+        var names = Order.Where(visibleRunning.Contains).Select(ToolNames.Display).ToList();
         var tooltip = "Track · " + (names.Count > 0 ? string.Join(", ", names) + " running" : "nothing running");
         return new TrayIconSpec(shapes, tooltip, $"{theme}|{string.Join(";", shapes)}");
     }

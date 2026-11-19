@@ -11,10 +11,13 @@ public sealed class UsageStore
 {
     private readonly Dictionary<UsageBucketKey, TokenCounts> _buckets = [];
     private readonly Dictionary<SessionKey, SessionUsage> _sessions = [];
+    private readonly Dictionary<string, IReadOnlyList<UsageRecord>> _documentContributions = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyDictionary<UsageBucketKey, TokenCounts> Buckets => _buckets;
 
     public IReadOnlyDictionary<SessionKey, SessionUsage> Sessions => _sessions;
+
+    public IReadOnlyDictionary<string, IReadOnlyList<UsageRecord>> DocumentContributions => _documentContributions;
 
     /// <summary>Adds records; returns how many were added.</summary>
     public int Add(IEnumerable<UsageRecord> records)
@@ -33,6 +36,60 @@ public sealed class UsageStore
         }
 
         return added;
+    }
+
+    /// <summary>Replaces one whole-file contribution without changing other files' totals.</summary>
+    public int ReplaceDocumentContribution(string path, IReadOnlyList<UsageRecord> records)
+    {
+        var affected = new HashSet<SessionKey>();
+        if (_documentContributions.TryGetValue(path, out var previous))
+        {
+            foreach (var record in previous)
+            {
+                RemoveBucket(record);
+                affected.Add(new SessionKey(record.Tool, record.SessionId));
+            }
+        }
+
+        var distinct = records
+            .DistinctBy(record => record.DedupeKey, StringComparer.Ordinal)
+            .ToList();
+        _documentContributions[path] = distinct;
+        foreach (var record in distinct)
+        {
+            AddBucket(record);
+            affected.Add(new SessionKey(record.Tool, record.SessionId));
+        }
+
+        foreach (var key in affected)
+        {
+            var sessionRecords = _documentContributions.Values
+                .SelectMany(contribution => contribution)
+                .Where(record => record.Tool == key.Tool && record.SessionId == key.SessionId)
+                .ToList();
+            if (sessionRecords.Count == 0)
+            {
+                _sessions.Remove(key);
+                continue;
+            }
+
+            var tokens = sessionRecords.Aggregate(default(TokenCounts), (sum, record) => sum + TokenCounts.From(record));
+            _sessions[key] = new SessionUsage(
+                tokens,
+                sessionRecords.Min(record => record.Timestamp),
+                sessionRecords.Max(record => record.Timestamp));
+        }
+
+        return distinct.Count;
+    }
+
+    /// <summary>Restores document ownership metadata without adding the already-snapshotted totals again.</summary>
+    public void RestoreDocumentContributions(IEnumerable<DocumentCursor> cursors)
+    {
+        foreach (var cursor in cursors)
+        {
+            _documentContributions[cursor.Path] = cursor.Records;
+        }
     }
 
     /// <summary>Puts back saved totals (from a snapshot), adding to anything already there.</summary>
@@ -61,5 +118,36 @@ public sealed class UsageStore
     {
         _buckets.Keys.Where(k => k.HourUtc < keepFrom).ToList().ForEach(k => _buckets.Remove(k));
         _sessions.Where(p => p.Value.LastUtc < sessionsFrom).Select(p => p.Key).ToList().ForEach(k => _sessions.Remove(k));
+        foreach (var path in _documentContributions.Keys.ToList())
+        {
+            _documentContributions[path] = _documentContributions[path]
+                .Where(record => record.Timestamp >= keepFrom)
+                .ToList();
+        }
+    }
+
+    private void AddBucket(UsageRecord record)
+    {
+        var key = UsageBucketKey.For(record);
+        _buckets[key] = _buckets.GetValueOrDefault(key) + TokenCounts.From(record);
+    }
+
+    private void RemoveBucket(UsageRecord record)
+    {
+        var key = UsageBucketKey.For(record);
+        if (!_buckets.TryGetValue(key, out var current))
+        {
+            return;
+        }
+
+        var remaining = current - TokenCounts.From(record);
+        if (remaining.Calls <= 0)
+        {
+            _buckets.Remove(key);
+        }
+        else
+        {
+            _buckets[key] = remaining;
+        }
     }
 }

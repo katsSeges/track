@@ -58,7 +58,7 @@ public sealed class UsagePanelBuilder(UsageStore store, UsageAggregator usage, P
             selected?.Label ?? PeriodLabel(period),
             rows,
             total,
-            showChart ? ChartViewModel.Build(period, buckets, selected?.StartUtc) : null,
+            showChart ? ChartViewModel.Build(period, buckets, selected?.StartUtc, listed.ToHashSet()) : null,
             showChart ? _comparison.For(period).Text : null,
             selected?.StartUtc);
     }

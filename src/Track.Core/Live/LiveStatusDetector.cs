@@ -31,7 +31,9 @@ public sealed partial class LiveStatusDetector(
     string copilotSessionRoot,
     IProcessList processes,
     UsageAggregator usage,
-    TimeProvider time)
+    TimeProvider time,
+    IOllamaStatusProbe? ollamaProbe = null,
+    Func<bool>? ollamaEnabled = null)
 {
     public static readonly TimeSpan ActiveWindow = TimeSpan.FromMinutes(2);
     public static readonly TimeSpan ActivityLookback = TimeSpan.FromDays(1);
@@ -45,18 +47,22 @@ public sealed partial class LiveStatusDetector(
         var now = time.GetUtcNow();
         recent = (recent ?? scanner.Scan(now - ActivityLookback)).Where(f => f.LastWriteUtc >= now - ActivityLookback).ToList();
         var openCopilot = OpenCopilotSessions();
+        var ollamaStatus = ollamaProbe is not null && (ollamaEnabled?.Invoke() ?? false)
+            ? ollamaProbe.Probe()
+            : null;
 
         return Enum.GetValues<Tool>().ToDictionary(tool => tool, tool =>
         {
             var files = recent.Where(f => f.Tool == tool).ToList();
             var active = files.Where(f => now - f.LastWriteUtc <= ActiveWindow).Select(f => f.SessionId).Distinct().Count();
+            var useOllamaProbe = tool == Tool.Ollama && ollamaStatus is not null;
             return new LiveStatus(
                 tool,
                 Working: active > 0,
                 ActiveSessions: active,
                 OpenSessions: tool == Tool.Copilot ? openCopilot : 0,
-                ProcessRunning: processes.AnyRunning(ProcessNames[tool]),
-                LastModel: usage.LatestModel(tool),
+                ProcessRunning: useOllamaProbe ? ollamaStatus!.Running : processes.AnyRunning(ProcessNames[tool]),
+                LastModel: useOllamaProbe ? ollamaStatus!.Model : usage.LatestModel(tool),
                 LastActivityUtc: files.Count > 0 ? files.Max(f => f.LastWriteUtc) : null);
         });
     }

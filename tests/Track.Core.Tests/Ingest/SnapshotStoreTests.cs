@@ -89,6 +89,31 @@ public class SnapshotStoreTests
         Assert.Equal(new TokenCounts(10, 2, 3, 4, 1, 1), Assert.Single(loaded.Buckets).Tokens);
         Assert.Equal("session-a", Assert.Single(loaded.Sessions).SessionId);
         Assert.Equal(new TokenCounts(5, 1, 2, 3, 0, 1), loaded.Sessions[0].Usage.Tokens);
+        Assert.Empty(loaded.DocumentCursors);
+    }
+
+    [Fact]
+    public void Additive_document_cursors_round_trip_without_changing_snapshot_version()
+    {
+        var fs = new MockFileSystem();
+        var store = new SnapshotStore(fs, Path);
+        var usage = new UsageRecord(Tool.Gemini, "session", "gemini-2.5", Lines.Now, 10, 0, 2, 3, 1, "message");
+        var snapshot = Sample() with
+        {
+            DocumentCursors =
+            [
+                new DocumentCursor(@"C:\logs\session.jsonl", Tool.Gemini, "session", "5:123", Lines.Now, 123, [usage]),
+            ],
+        };
+
+        Assert.True(store.Save(snapshot));
+        var loaded = store.Load()!;
+
+        Assert.Equal(1, loaded.Version);
+        var cursor = Assert.Single(loaded.DocumentCursors);
+        Assert.Equal((@"C:\logs\session.jsonl", Tool.Gemini, "session", "5:123", 123L),
+            (cursor.Path, cursor.Tool, cursor.SessionId, cursor.Fingerprint, cursor.Length));
+        Assert.Equal(usage, Assert.Single(cursor.Records));
     }
 
     [Fact]

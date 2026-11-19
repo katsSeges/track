@@ -185,6 +185,7 @@ public sealed class IslandWindow : Window
     private static string ContentKey(IslandContent c) =>
         $"{c.State}|{c.NeedsYou}|{c.CanMinimize}|{c.MainTool}|{(c.State == IslandState.Active ? "" : c.MainText)}|{c.MainExtra}|{string.Join(",", c.Logos)}|{string.Join(",", c.Bubble)}|{c.Counter}|{c.Header}|{c.HeaderRight}|{c.Footer}|{c.Activity}|" +
         string.Join(";", c.Rows.Select(r => $"{r.Tool}{r.Detail}[{string.Join(",", r.Subs.Select(x => $"{x.Name}/{x.Task}/{x.Meta}/{x.Running}/{x.Depth}"))}]")) +
+        string.Join(";", c.ProviderStatuses ?? []) +
         string.Join(";", c.Table) + $"|{c.Tab}|{c.SubAgentDots}|" + UsageKey(c.Usage);
 
     private static string UsageKey(UsagePanelContent? u) => u is null
@@ -385,6 +386,7 @@ public sealed class IslandWindow : Window
         if (c.Tab == IslandTab.Usage && c.Usage is { } usage)
         {
             AddUsage(panel, usage);
+            AddProviderStatuses(panel, c.ProviderStatuses);
             return Pill(panel, open: true);
         }
 
@@ -422,7 +424,7 @@ public sealed class IslandWindow : Window
             panel.Children.Add(new Border { BorderBrush = Rule, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 8), Child = agent });
         }
 
-        if (c.Rows.Count == 0)
+        if (c.Rows.Count == 0 && c.ProviderStatuses is not { Count: > 0 })
         {
             panel.Children.Add(new Border
             {
@@ -444,12 +446,48 @@ public sealed class IslandWindow : Window
             });
         }
 
+        AddProviderStatuses(panel, c.ProviderStatuses);
+
         if (c.Footer is not null)
         {
             panel.Children.Add(new Border { BorderBrush = Rule, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 8, 0, 0), Child = Text(c.Footer, Dim, mono: true, size: 11) });
         }
 
         return Pill(panel, open: true);
+    }
+
+    private void AddProviderStatuses(StackPanel panel, IReadOnlyList<IslandProviderStatusRow>? statuses)
+    {
+        foreach (var status in statuses ?? [])
+        {
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition());
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var logo = Logo(status.Tool, 16, 0);
+            var name = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
+            name.Children.Add(Text(status.Name, White));
+            name.Children.Add(Text(status.Detail, Dim, mono: true, size: 10.5));
+            var dot = new Ellipse
+            {
+                Width = 6,
+                Height = 6,
+                Fill = status.Running ? Done : Dim,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(name, 1);
+            Grid.SetColumn(dot, 2);
+            grid.Children.Add(logo);
+            grid.Children.Add(name);
+            grid.Children.Add(dot);
+            panel.Children.Add(new Border
+            {
+                BorderBrush = Rule,
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Padding = new Thickness(0, 6, 0, 6),
+                Child = grid,
+            });
+        }
     }
 
     /// <summary>
