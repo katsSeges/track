@@ -267,6 +267,9 @@ the gate is "no worse than 1.2.0 measured the same way, and the working set at o
 | Private bytes (MB) | 47 | 69–72 | 68–70 |
 | Settings + Analytics open → 30 s after closing, working set (MB) | – | – | 126–144 → 36–43 |
 
+- **Absolute targets, branch alone** (static demo logs with all 7 providers, no test hooks, nothing else started, 120 s
+  settle, 301 s sample): **0.34 % of one core, working set max 58.6 MB (end 54.8 MB)**, private 68.1 MB. Within both
+  limits (≤ 0.5 %, ≤ 60 MB). The side-by-side runs above were inflated by three copies plus builds running at once.
 - Startup from a copy of the user's 1.2.0 snapshot (`replay/startup.cs`): first refresh 220 ms, 0.24 MB read; second
   refresh 85 ms, 0 MB.
 - Found and fixed here: the Settings/Analytics windows' memory stayed after closing (115–124 MB); `TrimSoon()` now
